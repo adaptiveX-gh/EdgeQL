@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import * as monaco from 'monaco-editor';
   import type { editor } from 'monaco-editor';
 
   export let value: string = '';
@@ -18,6 +17,7 @@
   let container: HTMLElement;
   let editor: editor.IStandaloneCodeEditor;
   let model: editor.ITextModel;
+  let monaco: any;
 
   const defaultOptions: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
@@ -37,7 +37,20 @@
     ...options
   };
 
-  onMount(() => {
+  onMount(async () => {
+    // Set Monaco Editor loader configuration to use self-hosted assets
+    if (typeof window !== 'undefined') {
+      window.MonacoEnvironment = {
+        getWorkerUrl: function (workerId, label) {
+          return `/monaco/vs/base/worker/workerMain.js`;
+        }
+      };
+    }
+
+    // Dynamically import Monaco Editor
+    const monacoModule = await import('monaco-editor');
+    monaco = monacoModule;
+    
     // Register DSL language if not exists
     if (!monaco.languages.getLanguages().find(lang => lang.id === 'dsl')) {
       monaco.languages.register({ id: 'dsl' });

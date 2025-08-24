@@ -7,11 +7,33 @@ export default defineConfig({
   root: '.',
   publicDir: 'static',
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ['monaco-editor'],
+        },
+      },
+    },
+  },
+  optimizeDeps: {
+    include: ['monaco-editor'],
+  },
+  define: {
+    global: 'globalThis',
+  },
+  worker: {
+    format: 'es',
+    plugins: () => []
   },
   server: {
     host: '0.0.0.0',
     port: 5173,
+    fs: {
+      allow: ['..', '../../node_modules'],
+      // Allow serving monaco-editor files
+      strict: false
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

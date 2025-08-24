@@ -28,6 +28,21 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 
   try {
     const response = await fetch(url, config);
+    
+    // Check if response is JSON by looking at Content-Type header
+    const contentType = response.headers.get('content-type');
+    const isJson = contentType?.includes('application/json');
+    
+    if (!isJson) {
+      // If response is not JSON (e.g., HTML error page), handle it differently
+      const text = await response.text();
+      throw new ApiError(
+        response.status,
+        response.ok ? 'Unexpected response format' : `Server returned ${response.status}: ${response.statusText}`,
+        { status: response.status, body: text }
+      );
+    }
+    
     const data: ApiResponse<T> = await response.json();
 
     if (!response.ok) {
@@ -52,7 +67,12 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
       throw error;
     }
     
-    // Network or parsing errors
+    // Handle JSON parsing errors more specifically
+    if (error instanceof SyntaxError && error.message.includes('JSON')) {
+      throw new ApiError(0, 'Server returned invalid JSON. Check if the API server is running.', error);
+    }
+    
+    // Network or other parsing errors
     throw new ApiError(0, `Network error: ${error.message}`, error);
   }
 }

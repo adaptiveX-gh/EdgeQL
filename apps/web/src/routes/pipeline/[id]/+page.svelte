@@ -4,18 +4,13 @@
   import { pipelineApi, runApi, RunPoller, ApiError } from '../../../lib/api/client.js';
   import type { Pipeline, PipelineRun } from '../../../lib/api/types.js';
   
-  export let pipelineId = '';
+  export let pipelineId;
   
-  // Get pipeline ID from URL if not provided as prop
-  onMount(() => {
-    if (!pipelineId) {
-      const path = window.location.pathname;
-      const match = path.match(/\/pipeline\/([^/]+)/);
-      if (match) {
-        pipelineId = match[1];
-      }
-    }
-  });
+  // Validate pipelineId prop
+  if (!pipelineId) {
+    console.error('Pipeline component: pipelineId prop is required');
+  }
+  
   let pipeline: Pipeline | null = null;
   let dslContent = '';
   let loading = true;
@@ -27,6 +22,13 @@
   let runPoller: RunPoller | null = null;
   
   onMount(async () => {
+    // Skip loading if pipelineId is missing
+    if (!pipelineId) {
+      error = 'Invalid pipeline ID';
+      loading = false;
+      return;
+    }
+    
     try {
       pipeline = await pipelineApi.get(pipelineId);
       dslContent = pipeline.dsl;
@@ -122,10 +124,24 @@
       window.location.href = `/results/${runId}`;
     }
   };
+
+  // Helper function to safely format numeric values
+  const safeFormatNumber = (value: number | undefined | null, decimals: number = 2, defaultValue: number = 0): string => {
+    const numValue = value ?? defaultValue;
+    if (typeof numValue !== 'number' || isNaN(numValue)) {
+      return defaultValue.toFixed(decimals);
+    }
+    return numValue.toFixed(decimals);
+  };
+
+  const safeFormatPercent = (value: number | undefined | null, decimals: number = 1): string => {
+    const numValue = (value ?? 0) * 100;
+    return safeFormatNumber(numValue, decimals, 0);
+  };
 </script>
 
 <svelte:head>
-  <title>Pipeline Editor - {pipelineId}</title>
+  <title>Pipeline Editor{pipelineId ? ` - ${pipelineId}` : ''}</title>
 </svelte:head>
 
 <div class="max-w-7xl mx-auto">
@@ -268,7 +284,7 @@
         </div>
 
         <!-- Results -->
-        {#if currentRun?.status === 'completed' && currentRun.results}
+        {#if currentRun?.status === 'completed' && currentRun.results && typeof currentRun.results === 'object'}
           <div class="card bg-base-100 shadow-lg">
             <div class="card-body">
               <h3 class="card-title text-lg">Backtest Results</h3>
@@ -276,29 +292,29 @@
               <div class="stats stats-vertical shadow">
                 <div class="stat">
                   <div class="stat-title">Total Return</div>
-                  <div class="stat-value text-sm" class:text-success={currentRun.results.totalReturn > 0} class:text-error={currentRun.results.totalReturn < 0}>
-                    {currentRun.results.totalReturn > 0 ? '+' : ''}{currentRun.results.totalReturn.toFixed(2)}%
+                  <div class="stat-value text-sm" class:text-success={(currentRun.results.totalReturn ?? 0) > 0} class:text-error={(currentRun.results.totalReturn ?? 0) < 0}>
+                    {(currentRun.results.totalReturn ?? 0) > 0 ? '+' : ''}{safeFormatNumber(currentRun.results.totalReturn)}%
                   </div>
                 </div>
                 
                 <div class="stat">
                   <div class="stat-title">Sharpe Ratio</div>
-                  <div class="stat-value text-sm">{currentRun.results.sharpeRatio.toFixed(2)}</div>
+                  <div class="stat-value text-sm">{safeFormatNumber(currentRun.results.sharpeRatio)}</div>
                 </div>
                 
                 <div class="stat">
                   <div class="stat-title">Max Drawdown</div>
-                  <div class="stat-value text-sm text-error">{currentRun.results.maxDrawdown.toFixed(2)}%</div>
+                  <div class="stat-value text-sm text-error">{safeFormatNumber(currentRun.results.maxDrawdown)}%</div>
                 </div>
                 
                 <div class="stat">
                   <div class="stat-title">Trades</div>
-                  <div class="stat-value text-sm">{currentRun.results.numTrades}</div>
+                  <div class="stat-value text-sm">{currentRun.results.numTrades ?? 0}</div>
                 </div>
                 
                 <div class="stat">
                   <div class="stat-title">Win Rate</div>
-                  <div class="stat-value text-sm">{(currentRun.results.winRate * 100).toFixed(1)}%</div>
+                  <div class="stat-value text-sm">{safeFormatPercent(currentRun.results.winRate)}%</div>
                 </div>
               </div>
               
@@ -310,7 +326,7 @@
                   View Full Report
                 </button>
                 <div class="text-xs text-center text-base-content/50">
-                  Final Capital: ${currentRun.results.finalCapital.toLocaleString()}
+                  Final Capital: ${Math.round(currentRun.results.finalCapital ?? 0).toLocaleString()}
                 </div>
               </div>
             </div>

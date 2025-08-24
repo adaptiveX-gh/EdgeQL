@@ -29,7 +29,7 @@
     if (route === 'pipelines') {
       url = '/';
     } else if (route === 'pipeline-editor') {
-      url = `/pipeline/${params.id}`;
+      url = `/pipeline/${params.pipelineId}`;
     } else {
       url = `/${route}`;
     }
@@ -49,7 +49,7 @@
     if (pipelineMatch) {
       return { 
         route: 'pipeline-editor', 
-        params: { id: pipelineMatch[1] }
+        params: { pipelineId: pipelineMatch[1] }
       };
     }
     
