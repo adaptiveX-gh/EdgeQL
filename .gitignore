@@ -68,6 +68,20 @@ Thumbs.db
 artifacts/*
 !artifacts/.gitkeep
 
+# Generated runtime data (do not commit)
+services/api/data/runs.json
+reports/*.json
+
+# Monaco static bundles (generated/copied for web workers)
+apps/web/static/monaco/
+apps/web/staticmonacovs/
+
+# Vite timestamped temp files
+apps/web/vite.config.js.timestamp-*.mjs
+
+# Accidental Windows special filenames
+nul
+
 # Docker
 .docker/
 
