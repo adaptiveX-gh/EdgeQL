@@ -1,6 +1,7 @@
 import { NodeRunner, ExecutionContext, ExecutionResult } from '../types.js';
 import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -33,7 +34,7 @@ export class PythonSandboxRunner implements NodeRunner {
       logs.push(`Executing Python node: ${nodeType} (${nodeId}) in sandbox`);
       
       // Create temporary directories for this execution
-      const tempDir = path.join('/tmp', 'edgeql-execution', executionId);
+      const tempDir = path.join(tmpdir(), 'edgeql-execution', executionId);
       const inputDir = path.join(tempDir, 'input');
       const outputDir = path.join(tempDir, 'output');
       
@@ -135,6 +136,12 @@ export class PythonSandboxRunner implements NodeRunner {
     return new Promise((resolve) => {
       const containerName = `edgeql-python-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       
+      // Convert Windows paths to Docker-compatible format
+      const dockerTempDir = this.convertToDockerPath(tempDir);
+      // Find the project root directory (where datasets/ is located)
+      const projectRoot = this.findProjectRoot();
+      const dockerDatasetsDir = this.convertToDockerPath(path.join(projectRoot, 'datasets'));
+      
       // Docker run command with resource constraints and security settings
       const dockerArgs = [
         'run',
@@ -145,12 +152,12 @@ export class PythonSandboxRunner implements NodeRunner {
         '--network=none',                   // No network access
         '--read-only',                      // Read-only filesystem
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m', // Temporary filesystem
-        '-v', `${tempDir}:/workspace:rw`,   // Mount workspace
-        '-v', `${process.cwd()}/datasets:/datasets:ro`, // Mount datasets read-only
+        '-v', `${dockerTempDir}:/workspace:rw`,   // Mount workspace
+        '-v', `${dockerDatasetsDir}:/datasets:ro`, // Mount datasets read-only
         '--user', 'edgeql',                 // Non-root user
         '--security-opt', 'no-new-privileges', // Security constraint
         'edgeql-python-sandbox',            // Image name
-        'python', `/workspace/nodes/${nodeType}.py`,
+        'python', `/app/nodes/${nodeType}.py`,
         '/workspace/input/input.json',
         '/workspace/output/output.json'
       ];
@@ -223,5 +230,52 @@ export class PythonSandboxRunner implements NodeRunner {
     // Try to extract memory usage from Docker output if available
     const memoryMatch = stderr.match(/memory usage: (\d+)/i);
     return memoryMatch?.[1] ? parseInt(memoryMatch[1], 10) : undefined;
+  }
+  
+  private findProjectRoot(): string {
+    // Start from current working directory and walk up to find project root
+    let currentDir = process.cwd();
+    
+    while (currentDir !== path.dirname(currentDir)) {
+      // Look for the root project characteristics
+      const datasetsPath = path.join(currentDir, 'datasets');
+      const packageJsonPath = path.join(currentDir, 'package.json');
+      
+      if (existsSync(datasetsPath) && existsSync(packageJsonPath)) {
+        try {
+          // Check if this is the root project by looking for workspaces in package.json
+          const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+          if (packageJson.workspaces) {
+            return currentDir;
+          }
+        } catch (e) {
+          // If we can't parse package.json, continue looking
+        }
+      }
+      
+      // Move up one directory
+      currentDir = path.dirname(currentDir);
+    }
+    
+    // Fallback to current working directory if project root not found
+    return process.cwd();
+  }
+  
+  private convertToDockerPath(windowsPath: string): string {
+    // Convert Windows paths to Docker Desktop compatible format
+    if (process.platform === 'win32') {
+      // Convert C:\path\to\file to /c/path/to/file format for Docker Desktop
+      const normalized = path.resolve(windowsPath).replace(/\\/g, '/');
+      
+      // Handle drive letters: C: -> /c
+      if (normalized.match(/^[A-Za-z]:/)) {
+        return '/' + normalized.charAt(0).toLowerCase() + normalized.slice(2);
+      }
+      
+      return normalized;
+    }
+    
+    // On non-Windows platforms, return as-is
+    return windowsPath;
   }
 }

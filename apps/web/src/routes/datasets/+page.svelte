@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { datasetApi, ApiError } from '$lib/api/client.js';
-  import type { Dataset } from '$lib/api/types.js';
+  import { datasetApi, ApiError } from '../../lib/api/client.js';
+  import type { Dataset } from '../../lib/api/types.js';
   
   let datasets: Dataset[] = [];
   let loading = true;

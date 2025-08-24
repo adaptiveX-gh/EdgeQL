@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PythonSandboxRunner } from '../runners/pythonSandboxRunner.js';
+import { PythonSandboxRunner } from '../runners/PythonSandboxRunner.js';
 import { ExecutionContext } from '../types.js';
 import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
@@ -284,6 +284,149 @@ describe('PythonSandboxRunner', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Python node error');
       expect(result.error).toContain('Division by zero');
+    });
+  });
+
+  describe('Windows Path Handling', () => {
+    it('should convert Windows paths to Docker format', () => {
+      // Access private method for testing
+      const convertPath = (runner as any).convertToDockerPath.bind(runner);
+      
+      // Mock Windows platform
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'win32'
+      });
+      
+      try {
+        // Test drive letter conversion
+        expect(convertPath('C:\\Users\\test\\data')).toBe('/c/Users/test/data');
+        expect(convertPath('D:\\Projects\\EdgeQL')).toBe('/d/Projects/EdgeQL');
+        
+        // Test path with mixed separators (should normalize)
+        expect(convertPath('C:\\temp\\edgeql-execution\\123')).toBe('/c/temp/edgeql-execution/123');
+        
+      } finally {
+        // Restore original platform
+        Object.defineProperty(process, 'platform', {
+          value: originalPlatform
+        });
+      }
+    });
+
+    it('should use OS temp directory instead of hardcoded /tmp', async () => {
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: { on: vi.fn() },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10);
+          }
+        })
+      };
+
+      (spawn as any).mockReturnValue(mockProcess);
+
+      await runner.execute(
+        'temp-path-test',
+        'DataLoaderNode',
+        {},
+        new Map(),
+        mockContext
+      );
+
+      // Verify that mkdirSync was called with OS-specific temp directory
+      expect(mkdirSync).toHaveBeenCalled();
+      const mkdirCall = (mkdirSync as any).mock.calls[0];
+      const tempPath = mkdirCall[0];
+      
+      // Should not start with /tmp on Windows
+      if (process.platform === 'win32') {
+        expect(tempPath).not.toMatch(/^\/tmp/);
+      }
+      
+      expect(tempPath).toMatch(/edgeql-execution/);
+    });
+
+    it('should handle non-Windows paths correctly', () => {
+      const convertPath = (runner as any).convertToDockerPath.bind(runner);
+      
+      // Mock non-Windows platform
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'linux'
+      });
+      
+      try {
+        // Should return paths unchanged on non-Windows
+        expect(convertPath('/tmp/test/path')).toBe('/tmp/test/path');
+        expect(convertPath('/home/user/data')).toBe('/home/user/data');
+        
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          value: originalPlatform
+        });
+      }
+    });
+  });
+
+  describe('Dataset Path Resolution', () => {
+    it('should find project root directory correctly', () => {
+      // Access private method for testing
+      const findProjectRoot = (runner as any).findProjectRoot.bind(runner);
+      
+      // Mock existsSync to simulate project structure
+      const originalExistsSync = existsSync;
+      (existsSync as any).mockImplementation((path: string) => {
+        // Simulate that datasets/ and package.json exist in the root directory
+        return path.includes('datasets') || path.includes('package.json');
+      });
+      
+      try {
+        const projectRoot = findProjectRoot();
+        
+        // Should find a path that exists (mocked to return true)
+        expect(typeof projectRoot).toBe('string');
+        expect(projectRoot.length).toBeGreaterThan(0);
+        
+      } finally {
+        // Restore original existsSync
+        (existsSync as any).mockImplementation(originalExistsSync);
+      }
+    });
+
+    it('should mount datasets from correct directory', async () => {
+      const mockProcess = {
+        stdout: { on: vi.fn() },
+        stderr: { on: vi.fn() },
+        on: vi.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10);
+          }
+        })
+      };
+
+      (spawn as any).mockReturnValue(mockProcess);
+
+      await runner.execute(
+        'dataset-path-test',
+        'DataLoaderNode',
+        { dataset: 'sample_ohlcv.csv' },
+        new Map(),
+        mockContext
+      );
+
+      // Verify Docker was called with correct datasets mount
+      const spawnCall = (spawn as any).mock.calls[0];
+      const dockerArgs = spawnCall[1];
+      
+      // Find the volume mount argument
+      const volumeArgIndex = dockerArgs.findIndex((arg: string) => arg.includes('datasets:/datasets:ro'));
+      expect(volumeArgIndex).toBeGreaterThan(-1);
+      
+      // The volume mount should not contain services/api
+      const volumeMount = dockerArgs[volumeArgIndex];
+      expect(volumeMount).not.toContain('services/api/datasets');
     });
   });
 

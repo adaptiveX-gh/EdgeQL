@@ -1,0 +1,11 @@
+[
+  {
+    "id": "sample-ma-crossover",
+    "name": "Moving Average Crossover (Sample)",
+    "description": "A simple moving average crossover strategy for demonstration",
+    "dsl": "# Moving Average Crossover Strategy\npipeline:\n  - id: data_loader\n    type: DataLoaderNode\n    params:\n      symbol: \"BTC/USD\"\n      timeframe: \"1h\"\n      dataset: \"sample_ohlcv.csv\"\n      \n  - id: sma_fast\n    type: IndicatorNode\n    depends_on: [data_loader]\n    params:\n      indicator: \"SMA\"\n      period: 10\n      column: \"close\"\n      \n  - id: sma_slow\n    type: IndicatorNode\n    depends_on: [data_loader]\n    params:\n      indicator: \"SMA\"\n      period: 20\n      column: \"close\"\n      \n  - id: signals\n    type: CrossoverSignalNode\n    depends_on: [sma_fast, sma_slow]\n    params:\n      buy_condition: \"fast > slow\"\n      sell_condition: \"fast < slow\"\n      \n  - id: backtest\n    type: BacktestNode\n    depends_on: [signals, data_loader]\n    params:\n      initial_capital: 100000\n      commission: 0.001",
+    "status": "ready",
+    "createdAt": "2025-08-24T19:18:12.671Z",
+    "updatedAt": "2025-08-24T19:18:12.671Z"
+  }
+]

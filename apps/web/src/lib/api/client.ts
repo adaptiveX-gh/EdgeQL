@@ -6,7 +6,7 @@ import type {
 } from './types.js';
 
 // Base API configuration
-const API_BASE = 'http://localhost:3002/api';
+const API_BASE = '/api';
 
 class ApiError extends Error {
   constructor(public status: number, message: string, public response?: any) {

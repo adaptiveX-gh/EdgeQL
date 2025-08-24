@@ -1,12 +1,21 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
-  import MonacoEditor from '$lib/monaco/MonacoEditor.svelte';
-  import { pipelineApi, runApi, RunPoller, ApiError } from '$lib/api/client.js';
-  import type { Pipeline, PipelineRun } from '$lib/api/types.js';
+  import MonacoEditor from '../../../lib/monaco/MonacoEditor.svelte';
+  import { pipelineApi, runApi, RunPoller, ApiError } from '../../../lib/api/client.js';
+  import type { Pipeline, PipelineRun } from '../../../lib/api/types.js';
   
-  let pipelineId = $page.params.id;
+  export let pipelineId = '';
+  
+  // Get pipeline ID from URL if not provided as prop
+  onMount(() => {
+    if (!pipelineId) {
+      const path = window.location.pathname;
+      const match = path.match(/\/pipeline\/([^/]+)/);
+      if (match) {
+        pipelineId = match[1];
+      }
+    }
+  });
   let pipeline: Pipeline | null = null;
   let dslContent = '';
   let loading = true;
@@ -105,7 +114,13 @@
   };
 
   const viewResults = (runId: string) => {
-    goto(`/results/${runId}`);
+    // Use the global navigate function
+    if (window.navigate) {
+      window.navigate('results', { runId });
+    } else {
+      // Fallback to direct navigation
+      window.location.href = `/results/${runId}`;
+    }
   };
 </script>
 

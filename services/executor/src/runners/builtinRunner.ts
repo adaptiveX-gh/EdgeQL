@@ -87,14 +87,41 @@ export class BuiltinNodeRunner implements NodeRunner {
     
     // For MVP, simulate loading from the sample CSV
     if (dataset === 'sample_ohlcv.csv') {
-      // In a real implementation, this would load from the actual dataset
-      const sampleData = [
-        { timestamp: '2024-01-01T00:00:00Z', open: 100, high: 105, low: 98, close: 103, volume: 1000 },
-        { timestamp: '2024-01-01T01:00:00Z', open: 103, high: 108, low: 101, close: 106, volume: 1200 },
-        { timestamp: '2024-01-01T02:00:00Z', open: 106, high: 110, low: 104, close: 109, volume: 900 },
-        { timestamp: '2024-01-01T03:00:00Z', open: 109, high: 112, low: 107, close: 111, volume: 1100 },
-        { timestamp: '2024-01-01T04:00:00Z', open: 111, high: 115, low: 109, close: 113, volume: 1300 }
-      ];
+      // Generate more data points to ensure crossover signals can be generated
+      const sampleData = [];
+      const basePrice = 100;
+      const startTime = new Date('2024-01-01T00:00:00Z');
+      
+      // Create 30 data points with deliberate crossover patterns
+      for (let i = 0; i < 30; i++) {
+        const timestamp = new Date(startTime.getTime() + i * 60 * 60 * 1000).toISOString();
+        
+        // Create price patterns that will result in SMA crossovers
+        // The key is to start high, go low, then go high again to create crossovers
+        let price;
+        if (i < 12) {
+          // Start with high prices to make slow SMA higher initially
+          price = basePrice + 10 - i * 0.8; // Gentle decline from 110 to ~100.4
+        } else if (i < 20) {
+          // Sharp uptrend to create golden cross (fast SMA crosses above slow SMA)
+          price = basePrice + (i - 12) * 2; // Strong upward trend from ~100.4 to 116
+        } else {
+          // Sharp decline to create death cross (fast SMA crosses below slow SMA)  
+          price = basePrice + 16 - (i - 20) * 2; // Decline from 116 to 96
+        }
+        
+        const variation = (Math.random() - 0.5) * 0.5; // Smaller variation for cleaner signals
+        const close = price + variation;
+        
+        sampleData.push({
+          timestamp,
+          open: close - 0.5 + Math.random(),
+          high: close + Math.random() * 2,
+          low: close - Math.random() * 2,
+          close,
+          volume: 1000 + Math.random() * 500
+        });
+      }
       
       logs.push(`Loaded ${sampleData.length} data points`);
       return { type: 'dataframe', data: sampleData };
@@ -190,28 +217,50 @@ export class BuiltinNodeRunner implements NodeRunner {
     
     logs.push(`Generating crossover signals with conditions: buy=${buy_condition}, sell=${sell_condition}`);
     
-    // Get input dataframes (should have indicators)
+    // Get input dataframes (should have indicators from previous nodes)
     const inputDataframes = Array.from(inputs.values()).filter(input => input.type === 'dataframe');
-    if (inputDataframes.length < 2) {
-      throw new Error('CrossoverSignalNode requires at least 2 dataframe inputs');
+    if (inputDataframes.length === 0) {
+      throw new Error('CrossoverSignalNode requires at least 1 dataframe input with indicators');
     }
     
-    // For MVP, assume we have fast and slow indicators in the data
-    // This is a simplified implementation
-    const baseData = inputDataframes[0].data;
-    const signals = baseData.map((row: any, i: number) => {
+    // Merge all input dataframes on timestamp to get complete data with all indicators
+    let combinedData = inputDataframes[0].data;
+    
+    // If we have multiple inputs, merge them by timestamp
+    for (let i = 1; i < inputDataframes.length; i++) {
+      const nextData = inputDataframes[i].data;
+      const mergedData: any[] = [];
+      
+      for (const row1 of combinedData) {
+        const matchingRow2 = nextData.find((row2: any) => row2.timestamp === row1.timestamp);
+        if (matchingRow2) {
+          mergedData.push({ ...row1, ...matchingRow2 });
+        }
+      }
+      combinedData = mergedData;
+    }
+    
+    logs.push(`Processing ${combinedData.length} data points for crossover signals`);
+    
+    // Generate signals based on crossover logic
+    const signals = combinedData.map((row: any, i: number) => {
       let signal = 0;
       
-      // Simple crossover logic (would be more sophisticated in real implementation)
-      if (i > 0) {
-        const prevRow = baseData[i - 1];
+      // Simple crossover logic - check if we have both fast and slow indicators
+      if (i > 0 && combinedData[i - 1]) {
+        const prevRow = combinedData[i - 1];
         
-        // Check for SMA crossover (simplified)
+        // Check for SMA crossover between fast (SMA_10) and slow (SMA_20) 
         if (row.SMA_10 && row.SMA_20 && prevRow.SMA_10 && prevRow.SMA_20) {
+          // Golden cross: fast SMA crosses above slow SMA (buy signal)
           if (prevRow.SMA_10 <= prevRow.SMA_20 && row.SMA_10 > row.SMA_20) {
-            signal = 1; // Buy signal
-          } else if (prevRow.SMA_10 >= prevRow.SMA_20 && row.SMA_10 < row.SMA_20) {
-            signal = -1; // Sell signal
+            signal = 1;
+            logs.push(`Golden cross detected at ${row.timestamp}: SMA_10=${row.SMA_10.toFixed(2)}, SMA_20=${row.SMA_20.toFixed(2)}`);
+          } 
+          // Death cross: fast SMA crosses below slow SMA (sell signal)
+          else if (prevRow.SMA_10 >= prevRow.SMA_20 && row.SMA_10 < row.SMA_20) {
+            signal = -1;
+            logs.push(`Death cross detected at ${row.timestamp}: SMA_10=${row.SMA_10.toFixed(2)}, SMA_20=${row.SMA_20.toFixed(2)}`);
           }
         }
       }
@@ -225,6 +274,27 @@ export class BuiltinNodeRunner implements NodeRunner {
     const signalCount = signals.filter((row: any) => row.signal !== 0).length;
     logs.push(`Generated ${signalCount} trading signals`);
     
+    // Debug: log data structure and crossover attempts
+    if (signals.length > 0) {
+      logs.push(`Sample data: SMA_10=${signals[signals.length-1].SMA_10}, SMA_20=${signals[signals.length-1].SMA_20}`);
+      
+      // Log crossover checking for last few rows
+      for (let i = Math.max(0, signals.length - 5); i < signals.length; i++) {
+        const row = signals[i];
+        const prevRow = i > 0 ? signals[i - 1] : null;
+        if (prevRow && row.SMA_10 && row.SMA_20 && prevRow.SMA_10 && prevRow.SMA_20) {
+          logs.push(`Row ${i}: SMA_10=${row.SMA_10.toFixed(2)}, SMA_20=${row.SMA_20.toFixed(2)}, Prev SMA_10=${prevRow.SMA_10.toFixed(2)}, Prev SMA_20=${prevRow.SMA_20.toFixed(2)}`);
+          if (prevRow.SMA_10 <= prevRow.SMA_20 && row.SMA_10 > row.SMA_20) {
+            logs.push(`  -> Should be BUY signal at row ${i}`);
+          } else if (prevRow.SMA_10 >= prevRow.SMA_20 && row.SMA_10 < row.SMA_20) {
+            logs.push(`  -> Should be SELL signal at row ${i}`);
+          } else {
+            logs.push(`  -> No crossover at row ${i}`);
+          }
+        }
+      }
+    }
+    
     return { type: 'dataframe', data: signals };
   }
   
@@ -237,17 +307,28 @@ export class BuiltinNodeRunner implements NodeRunner {
     
     logs.push(`Running backtest with initial capital: $${initial_capital}, commission: ${commission}`);
     
-    // Get signals and price data
+    // Get dataframe with signals and price data
     const inputValues = Array.from(inputs.values());
     const signalData = inputValues.find(input => 
-      input.type === 'dataframe' && input.data[0]?.signal !== undefined
+      input.type === 'dataframe' && 
+      input.data.length > 0 &&
+      input.data[0].hasOwnProperty('signal') &&
+      input.data[0].hasOwnProperty('close')
     );
     
     if (!signalData) {
-      throw new Error('No signal data found for backtest');
+      throw new Error('No signals data found in inputs. Expected dataframe with signal and OHLCV columns');
     }
     
     const data = signalData.data;
+    
+    // Debug: log signal information
+    const totalSignals = data.filter((row: any) => row.signal !== 0).length;
+    const buySignals = data.filter((row: any) => row.signal > 0).length;
+    const sellSignals = data.filter((row: any) => row.signal < 0).length;
+    
+    logs.push(`Processing ${data.length} data points with ${totalSignals} signals (${buySignals} buy, ${sellSignals} sell)`);
+    
     let capital = initial_capital;
     let position = 0;
     let trades = 0;
@@ -255,8 +336,6 @@ export class BuiltinNodeRunner implements NodeRunner {
     const equityCurve: any[] = [];
     let maxCapital = initial_capital;
     let maxDrawdown = 0;
-    
-    logs.push(`Processing ${data.length} data points`);
     
     for (const row of data) {
       if (row.signal === 1 && position <= 0) {

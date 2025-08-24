@@ -55,14 +55,24 @@ export const NodeIOContracts = {
         min_inputs: z.literal(2)
       })
     ]),
-    output: SignalsSchema
+    output: DataframeSchema.extend({
+      // CrossoverSignalNode outputs a dataframe with signal column added
+      signal_column: z.string().default('signal')
+    })
   },
   
   BacktestNode: {
-    input: z.object({
-      signals: SignalsSchema,
-      data: DataframeSchema
-    }),
+    input: z.union([
+      // Option 1: Single dataframe with signal column (from CrossoverSignalNode)
+      DataframeSchema.extend({
+        signal_column: z.string().optional()
+      }),
+      // Option 2: Separate signals and data inputs (legacy support)
+      z.object({
+        signals: SignalsSchema,
+        data: DataframeSchema
+      })
+    ]),
     output: BacktestResultsSchema
   }
 } as const;
@@ -86,12 +96,20 @@ export function validateNodeIOCompatibility(
     // Note: We allow DataLoaderNode to have no dependencies as it's a source node
     return { compatible: true, errors: [] };
   } else if (nodeType === 'BacktestNode') {
-    // BacktestNode requires exactly 2 dependencies: signals and data
-    if (dependencies.length !== 2) {
-      errors.push(`BacktestNode requires exactly 2 dependencies (signals and data), got ${dependencies.length}`);
-    } else {
-      // For BacktestNode, we expect the first dependency to provide signals and second to provide data
-      // This is a simplified check - in a real implementation we'd need more sophisticated matching
+    // BacktestNode can accept either:
+    // 1. Single dependency with dataframe containing signals (from CrossoverSignalNode)
+    // 2. Two dependencies: signals and data (legacy support)
+    if (dependencies.length === 1) {
+      // Single dependency case - must be a dataframe with signal column
+      const dep = nodeOutputs.get(dependencies[0]!);
+      if (!dep) {
+        errors.push(`BacktestNode dependency must have valid output schema`);
+      } else if (dep.type !== 'dataframe') {
+        errors.push(`BacktestNode single dependency must output dataframe, got ${dep.type}`);
+      }
+      // Additional validation for signal column could be added here
+    } else if (dependencies.length === 2) {
+      // Two dependency case - legacy support for separate signals and data
       const signalsDep = nodeOutputs.get(dependencies[0]!);
       const dataDep = nodeOutputs.get(dependencies[1]!);
       
@@ -100,6 +118,8 @@ export function validateNodeIOCompatibility(
       }
       // Note: We skip detailed schema validation for BacktestNode for now
       // as it requires special handling of named inputs
+    } else {
+      errors.push(`BacktestNode requires either 1 dependency (dataframe with signals) or 2 dependencies (signals and data), got ${dependencies.length}`);
     }
   } else if (dependencies.length === 0) {
     errors.push(`Node type ${nodeType} requires input dependencies`);
@@ -160,9 +180,9 @@ export function getNodeOutputSchema(nodeType: string, parameters?: any): any {
     case 'CrossoverSignalNode':
       const signalCol = parameters?.signal_column || 'signal';
       return {
-        type: 'signals',
-        signal_columns: [signalCol],
-        timestamp_column: 'timestamp'
+        type: 'dataframe',
+        columns: ['timestamp', 'open', 'high', 'low', 'close', 'volume', signalCol],
+        signal_column: signalCol
       };
       
     case 'BacktestNode':

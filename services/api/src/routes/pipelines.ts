@@ -1,20 +1,24 @@
 import { Router } from 'express';
 import type { Router as RouterType } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { PipelineExecutor } from '@edgeql/executor';
 import { Pipeline, PipelineRun, ApiResponse } from '../types/index.js';
+import { PipelineStorage, RunStorage } from '../utils/storage.js';
 
 const router: RouterType = Router();
 
-// In-memory storage for MVP (replace with database later)
-const pipelines = new Map<string, Pipeline>();
-const runs = new Map<string, PipelineRun>();
+// Initialize executor
+const executor = new PipelineExecutor();
 
-// Initialize with sample pipeline
-pipelines.set('sample-ma-crossover', {
-  id: 'sample-ma-crossover',
-  name: 'Moving Average Crossover (Sample)',
-  description: 'A simple moving average crossover strategy for demonstration',
-  dsl: `# Moving Average Crossover Strategy
+// Initialize sample pipeline on first load
+const initializeSampleData = async () => {
+  const existing = await PipelineStorage.get('sample-ma-crossover');
+  if (!existing) {
+    const samplePipeline: Pipeline = {
+      id: 'sample-ma-crossover',
+      name: 'Moving Average Crossover (Sample)',
+      description: 'A simple moving average crossover strategy for demonstration',
+      dsl: `# Moving Average Crossover Strategy
 pipeline:
   - id: data_loader
     type: DataLoaderNode
@@ -52,36 +56,57 @@ pipeline:
     params:
       initial_capital: 100000
       commission: 0.001`,
-  status: 'ready',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
-});
+      status: 'ready',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await PipelineStorage.set(samplePipeline);
+  }
+};
+
+// Initialize on startup
+initializeSampleData().catch(console.error);
 
 // GET /api/pipelines - List all pipelines
-router.get('/', (req, res) => {
-  const response: ApiResponse<Pipeline[]> = {
-    success: true,
-    data: Array.from(pipelines.values())
-  };
-  return res.json(response);
+router.get('/', async (req, res) => {
+  try {
+    const pipelines = await PipelineStorage.getAll();
+    const response: ApiResponse<Pipeline[]> = {
+      success: true,
+      data: pipelines
+    };
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve pipelines'
+    } as ApiResponse);
+  }
 });
 
 // GET /api/pipelines/:id - Get specific pipeline
-router.get('/:id', (req, res) => {
-  const pipeline = pipelines.get(req.params.id);
-  
-  if (!pipeline) {
-    return res.status(404).json({
+router.get('/:id', async (req, res) => {
+  try {
+    const pipeline = await PipelineStorage.get(req.params.id);
+    
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const response: ApiResponse<Pipeline> = {
+      success: true,
+      data: pipeline
+    };
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({
       success: false,
-      error: 'Pipeline not found'
+      error: 'Failed to retrieve pipeline'
     } as ApiResponse);
   }
-  
-  const response: ApiResponse<Pipeline> = {
-    success: true,
-    data: pipeline
-  };
-  return res.json(response);
 });
 
 // POST /api/pipelines/:id/run - Run a pipeline
@@ -89,79 +114,119 @@ router.post('/:id/run', async (req, res) => {
   const pipelineId = req.params.id;
   const { dsl } = req.body;
   
-  const pipeline = pipelines.get(pipelineId);
-  if (!pipeline) {
-    return res.status(404).json({
+  try {
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const runId = uuidv4();
+    const run: PipelineRun = {
+      id: runId,
+      pipelineId,
+      status: 'pending',
+      startTime: new Date().toISOString(),
+      logs: [`Starting pipeline execution for ${pipelineId}`]
+    };
+    
+    await RunStorage.set(run);
+    
+    // Start async execution
+    setImmediate(async () => {
+      try {
+        // Update status to running
+        run.status = 'running';
+        run.logs.push('Compiling DSL and validating pipeline structure...');
+        await RunStorage.set(run);
+        
+        // Use the actual DSL content from request or pipeline
+        const dslToExecute = dsl || pipeline.dsl;
+        
+        // Execute pipeline using the real executor
+        const executionResult = await executor.executePipeline(pipelineId, dslToExecute);
+        
+        if (executionResult.success) {
+          run.status = 'completed';
+          run.endTime = new Date().toISOString();
+          run.logs.push('Pipeline execution completed successfully');
+          
+          // Extract backtest results from final outputs
+          const backtestResult = Array.from(executionResult.finalOutputs.values())
+            .find((output: any) => output.type === 'backtest_results');
+          
+          if (backtestResult && (backtestResult as any).data) {
+            run.results = (backtestResult as any).data;
+            run.logs.push(`Backtest completed: ${JSON.stringify((backtestResult as any).data, null, 2)}`);
+          }
+          
+          // Add execution logs from each node
+          for (const [nodeId, result] of executionResult.results.entries()) {
+            if (result.logs) {
+              run.logs.push(`Node ${nodeId}:`);
+              run.logs.push(...result.logs.map((log: string) => `  ${log}`));
+            }
+          }
+        } else {
+          run.status = 'failed';
+          run.endTime = new Date().toISOString();
+          run.error = executionResult.error || 'Unknown execution error';
+          run.logs.push(`Error: ${run.error}`);
+          
+          // Add any partial execution logs
+          for (const [nodeId, result] of executionResult.results.entries()) {
+            if (result.logs) {
+              run.logs.push(`Node ${nodeId} logs:`);
+              run.logs.push(...result.logs.map((log: string) => `  ${log}`));
+            }
+          }
+        }
+        
+        await RunStorage.set(run);
+        
+      } catch (error) {
+        run.status = 'failed';
+        run.endTime = new Date().toISOString();
+        run.error = error instanceof Error ? error.message : 'Unknown error';
+        run.logs.push(`Execution error: ${run.error}`);
+        await RunStorage.set(run);
+      }
+    });
+    
+    const response: ApiResponse<{ runId: string }> = {
+      success: true,
+      data: { runId },
+      message: 'Pipeline execution started'
+    };
+    return res.json(response);
+    
+  } catch (error) {
+    return res.status(500).json({
       success: false,
-      error: 'Pipeline not found'
+      error: 'Failed to start pipeline execution'
     } as ApiResponse);
   }
-  
-  const runId = uuidv4();
-  const run: PipelineRun = {
-    id: runId,
-    pipelineId,
-    status: 'pending',
-    startTime: new Date().toISOString(),
-    logs: [`Starting pipeline execution for ${pipelineId}`]
-  };
-  
-  runs.set(runId, run);
-  
-  // Simulate async execution
-  setImmediate(async () => {
-    try {
-      // Update status to running
-      run.status = 'running';
-      run.logs.push('Compiling DSL...');
-      run.logs.push('Validating pipeline structure...');
-      run.logs.push('Starting node execution...');
-      
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock successful completion
-      run.status = 'completed';
-      run.endTime = new Date().toISOString();
-      run.logs.push('Pipeline execution completed successfully');
-      run.results = {
-        totalReturn: 15.4 + Math.random() * 10 - 5, // Add some randomness
-        sharpeRatio: 1.23 + Math.random() * 0.5 - 0.25,
-        maxDrawdown: -8.7 - Math.random() * 5,
-        numTrades: 42 + Math.floor(Math.random() * 20 - 10),
-        winRate: 0.67 + Math.random() * 0.2 - 0.1,
-        finalCapital: 115400 + Math.random() * 20000 - 10000,
-        trades: [],
-        equityCurve: []
-      };
-    } catch (error) {
-      run.status = 'failed';
-      run.endTime = new Date().toISOString();
-      run.error = error instanceof Error ? error.message : 'Unknown error';
-      run.logs.push(`Error: ${run.error}`);
-    }
-  });
-  
-  const response: ApiResponse<{ runId: string }> = {
-    success: true,
-    data: { runId },
-    message: 'Pipeline execution started'
-  };
-  return res.json(response);
 });
 
 // GET /api/pipelines/:id/runs - Get pipeline runs
-router.get('/:id/runs', (req, res) => {
-  const pipelineId = req.params.id;
-  const pipelineRuns = Array.from(runs.values())
-    .filter(run => run.pipelineId === pipelineId)
-    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-  
-  const response: ApiResponse<PipelineRun[]> = {
-    success: true,
-    data: pipelineRuns
-  };
-  return res.json(response);
+router.get('/:id/runs', async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const pipelineRuns = await RunStorage.getByPipeline(pipelineId);
+    
+    const response: ApiResponse<PipelineRun[]> = {
+      success: true,
+      data: pipelineRuns
+    };
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve pipeline runs'
+    } as ApiResponse);
+  }
 });
 
 export { router as pipelinesRouter };

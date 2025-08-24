@@ -10,8 +10,19 @@
   let pipeline: Pipeline | null = null;
   let loading = true;
   let error: string | null = null;
+  let showToast = false;
+  let toastMessage = '';
+  
+  // Check if this is a shared/read-only view
+  $: isSharedView = $page.url.searchParams.has('share');
 
   onMount(async () => {
+    if (!runId) {
+      error = 'Run ID not found';
+      loading = false;
+      return;
+    }
+    
     try {
       run = await runApi.get(runId);
       if (run.pipelineId) {
@@ -36,7 +47,22 @@
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
-    // Could add a toast notification here
+    showToast = true;
+    toastMessage = 'Link copied to clipboard!';
+    setTimeout(() => {
+      showToast = false;
+    }, 3000);
+  };
+  
+  const copyShareLink = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('share', 'true');
+    navigator.clipboard.writeText(url.toString());
+    showToast = true;
+    toastMessage = 'Shareable link copied to clipboard!';
+    setTimeout(() => {
+      showToast = false;
+    }, 3000);
   };
 
   const downloadResults = () => {
@@ -65,7 +91,7 @@
 </script>
 
 <svelte:head>
-  <title>Run Results - {runId}</title>
+  <title>{isSharedView ? 'Shared Results' : 'Run Results'} - {runId}</title>
   <meta name="description" content="Backtest results for pipeline run {runId}" />
 </svelte:head>
 
@@ -86,6 +112,19 @@
       <a href="/" class="btn btn-sm btn-outline">Back to Pipelines</a>
     </div>
   {:else if run}
+    <!-- Shared View Banner -->
+    {#if isSharedView}
+      <div class="alert alert-info mb-6">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z"></path>
+        </svg>
+        <div>
+          <h3 class="font-bold">Shared Results View</h3>
+          <div class="text-xs">You're viewing shared backtest results in read-only mode.</div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Header -->
     <div class="flex justify-between items-start mb-6">
       <div>
@@ -99,12 +138,21 @@
       </div>
       
       <div class="flex gap-3">
-        <button class="btn btn-ghost btn-sm" on:click={copyLink}>
-          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-          </svg>
-          Copy Link
-        </button>
+        {#if !isSharedView}
+          <button class="btn btn-ghost btn-sm" on:click={copyLink}>
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+            </svg>
+            Copy Link
+          </button>
+          
+          <button class="btn btn-outline btn-sm" on:click={copyShareLink}>
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z"></path>
+            </svg>
+            Share
+          </button>
+        {/if}
         
         {#if run.results}
           <button class="btn btn-primary btn-sm" on:click={downloadResults}>
@@ -115,7 +163,7 @@
           </button>
         {/if}
         
-        {#if pipeline}
+        {#if pipeline && !isSharedView}
           <a href="/pipeline/{pipeline.id}" class="btn btn-secondary btn-sm">
             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
@@ -297,3 +345,15 @@
     </div>
   {/if}
 </div>
+
+<!-- Toast Notification -->
+{#if showToast}
+  <div class="toast toast-top toast-center z-50">
+    <div class="alert alert-success">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      <span>{toastMessage}</span>
+    </div>
+  </div>
+{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { pipelineApi, ApiError } from '$lib/api/client.js';
-  import type { Pipeline } from '$lib/api/types.js';
+  import { pipelineApi, ApiError } from '../lib/api/client.js';
+  import type { Pipeline } from '../lib/api/types.js';
   
   let pipelines: Pipeline[] = [];
   let loading = true;
@@ -87,12 +87,15 @@
             </div>
             
             <div class="card-actions justify-end mt-4">
-              <a href="/pipeline/{pipeline.id}" class="btn btn-primary btn-sm">
+              <button 
+                class="btn btn-primary btn-sm" 
+                on:click={() => window.navigate && window.navigate('pipeline-editor', { id: pipeline.id })}
+              >
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
                 </svg>
                 Edit
-              </a>
+              </button>
               <button class="btn btn-ghost btn-sm" disabled>
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>

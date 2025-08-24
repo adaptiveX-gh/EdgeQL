@@ -44,17 +44,23 @@ class IndicatorNode:
     def __init__(self, params: Dict[str, Any]):
         self.params = IndicatorParams(**params)
 
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Main execution method
 
         Args:
-            input_data: Dictionary containing dataframe from previous node
+            inputs: Dictionary containing inputs from dependent nodes
 
         Returns:
             Dict containing the original data with added indicator columns
         """
         try:
+            if not inputs:
+                raise ValueError("IndicatorNode requires inputs from dependent nodes")
+            
+            # Get input from first dependency (typically DataLoaderNode)
+            input_data = next(iter(inputs.values())) if inputs else {}
+            
             if input_data.get("type") != "dataframe":
                 raise ValueError("IndicatorNode requires dataframe input")
 
@@ -68,9 +74,19 @@ class IndicatorNode:
             # Calculate the requested indicator
             df = self._calculate_indicator(df)
 
+            # Convert to dictionary and handle NaN values for JSON serialization
+            data_dict = df.to_dict("records")
+            
+            # Replace NaN values with None (null in JSON)
+            import math
+            for row in data_dict:
+                for key, value in row.items():
+                    if isinstance(value, float) and math.isnan(value):
+                        row[key] = None
+            
             return {
                 "type": "dataframe",
-                "data": df.to_dict("records"),
+                "data": data_dict,
                 "metadata": {
                     "indicator": self.params.indicator,
                     "period": self.params.period,
@@ -235,11 +251,10 @@ def main():
             config = json.load(f)
 
         params = config.get("params", {})
-        input_data = config.get("input_data", {})
 
         # Create and run the node
         node = IndicatorNode(params)
-        result = node.run(input_data)
+        result = node.run(config.get("inputs", {}))
 
         # Write result to output
         with open(output_file, "w") as f:
