@@ -1,0 +1,52 @@
+# Moving Average Crossover Strategy
+# This strategy generates buy/sell signals based on the crossover of two moving averages:
+# - Fast MA (20-period) crossing above Slow MA (50-period) = BUY signal
+# - Fast MA crossing below Slow MA = SELL signal
+
+pipeline:
+  # Load historical price data
+  - id: price_data
+    type: DataLoaderNode
+    params:
+      symbol: "BTC/USD"
+      timeframe: "1h"
+      dataset: "BTC_1m_hyperliquid_perpetualx.csv"
+      start_date: "2023-01-01"
+      end_date: "2023-12-31"
+
+  # Calculate fast moving average (20-period)
+  - id: fast_ma
+    type: IndicatorNode
+    depends_on: [price_data]
+    params:
+      indicator: "SMA"
+      period: 20
+      column: "close"
+
+  # Calculate slow moving average (50-period)
+  - id: slow_ma
+    type: IndicatorNode
+    depends_on: [price_data]
+    params:
+      indicator: "SMA"
+      period: 50
+      column: "close"
+
+  # Generate crossover signals
+  - id: ma_signals
+    type: CrossoverSignalNode
+    depends_on: [fast_ma, slow_ma]
+    params:
+      buy_condition: "fast_ma > slow_ma"
+      sell_condition: "fast_ma < slow_ma"
+      signal_column: "signal"
+
+  # Run backtest
+  - id: backtest_results
+    type: BacktestNode
+    depends_on: [ma_signals, price_data]
+    params:
+      initial_capital: 10000
+      commission: 0.001
+      slippage: 0.0005
+      position_size: 1.0

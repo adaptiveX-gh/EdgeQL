@@ -58,7 +58,10 @@
       "Bash(tsx scripts/validate-test-coverage.ts:*)",
       "Bash(npx jest:*)",
       "Bash(tsx scripts/test-sprint1-migration.ts:*)",
-      "Bash(tsx scripts/test-rollback-sprint1.ts:*)"
+      "Bash(tsx scripts/test-rollback-sprint1.ts:*)",
+      "Bash(pnpm --filter services/api start)",
+      "Bash(pnpm dev:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",

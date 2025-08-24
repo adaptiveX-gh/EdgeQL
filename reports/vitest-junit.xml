@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="54" failures="2" errors="0" time="0.836">
+    <testsuite name="services/api/src/tests/datasets.test.ts" timestamp="2025-08-24T18:47:28.395Z" hostname="adaptiveX-pc1" tests="18" failures="1" errors="0" skipped="0" time="0.119">
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets &gt; should return list of datasets including sample data" time="0.018">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets &gt; should return datasets with correct structure" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets &gt; should return sample dataset with expected properties" time="0.005">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id &gt; should return specific dataset details" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id &gt; should return 404 for non-existent dataset" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id &gt; should handle invalid dataset ID format" time="0.002">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id &gt; should handle empty dataset ID" time="0.005">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id/preview &gt; should return preview data for existing dataset" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id/preview &gt; should return consistent preview data structure" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; GET /api/datasets/:id/preview &gt; should return 404 for preview of non-existent dataset" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; POST /api/datasets/upload &gt; should return 501 for unimplemented upload feature" time="0.006">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; POST /api/datasets/upload &gt; should handle empty upload request" time="0.011">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; DELETE /api/datasets/:id &gt; should return 501 for unimplemented delete feature" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; Edge Cases &gt; should handle concurrent requests for same dataset" time="0.02">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; Edge Cases &gt; should handle malformed dataset IDs" time="0.006">
+            <failure message="expected 404 &quot;Not Found&quot;, got 200 &quot;OK&quot;" type="Error">
+Error: expected 404 &quot;Not Found&quot;, got 200 &quot;OK&quot;
+ ❯ services/api/src/tests/datasets.test.ts:217:12
+ ❯ Test._assertStatus node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:252:14
+ ❯ node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:308:13
+ ❯ Test._assertFunction node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:285:13
+ ❯ Test.assert node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:164:23
+ ❯ Server.localAssert node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:120:14
+ ❯ Object.onceWrapper node:events:632:28
+ ❯ Server.emit node:events:518:28
+ ❯ emitCloseNT node:net:2419:8
+            </failure>
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; Edge Cases &gt; should handle very long dataset IDs" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; Edge Cases &gt; should handle special characters in dataset IDs" time="0.007">
+        </testcase>
+        <testcase classname="services/api/src/tests/datasets.test.ts" name="Datasets API &gt; Edge Cases &gt; should handle concurrent preview requests" time="0.01">
+        </testcase>
+    </testsuite>
+    <testsuite name="services/api/src/tests/nodes.test.ts" timestamp="2025-08-24T18:47:28.409Z" hostname="adaptiveX-pc1" tests="18" failures="1" errors="0" skipped="0" time="0.103">
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes &gt; should return list of all nodes including built-ins" time="0.019">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes &gt; should return nodes with correct structure" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/builtin &gt; should return only built-in nodes" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/builtin &gt; should include all expected built-in nodes" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/custom &gt; should return empty list when no custom nodes exist" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should return specific built-in node" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should return indicator node with correct schema" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should return crossover signal node with correct schema" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should return backtest node with correct schema" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should return 404 for non-existent node" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; GET /api/nodes/:id &gt; should handle invalid node ID format" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; POST /api/nodes &gt; should return 501 for unimplemented custom node creation" time="0.012">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; POST /api/nodes &gt; should handle empty request body" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; PUT /api/nodes/:id &gt; should return 501 for unimplemented custom node editing" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; DELETE /api/nodes/:id &gt; should return 501 for unimplemented custom node deletion" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; Edge Cases &gt; should handle concurrent requests for same node" time="0.016">
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; Edge Cases &gt; should handle malformed node IDs" time="0.005">
+            <failure message="expected 404 &quot;Not Found&quot;, got 200 &quot;OK&quot;" type="Error">
+Error: expected 404 &quot;Not Found&quot;, got 200 &quot;OK&quot;
+ ❯ services/api/src/tests/nodes.test.ts:234:12
+ ❯ Test._assertStatus node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:252:14
+ ❯ node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:308:13
+ ❯ Test._assertFunction node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:285:13
+ ❯ Test.assert node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:164:23
+ ❯ Server.localAssert node_modules/.pnpm/supertest@6.3.4/node_modules/supertest/lib/test.js:120:14
+ ❯ Object.onceWrapper node:events:632:28
+ ❯ Server.emit node:events:518:28
+ ❯ emitCloseNT node:net:2419:8
+            </failure>
+        </testcase>
+        <testcase classname="services/api/src/tests/nodes.test.ts" name="Nodes API &gt; Edge Cases &gt; should handle very long node IDs" time="0.003">
+        </testcase>
+    </testsuite>
+    <testsuite name="services/api/src/tests/pipelines.test.ts" timestamp="2025-08-24T18:47:28.413Z" hostname="adaptiveX-pc1" tests="6" failures="0" errors="0" skipped="0" time="0.055">
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; GET /api/pipelines &gt; should return list of pipelines" time="0.022">
+        </testcase>
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; GET /api/pipelines/:id &gt; should return specific pipeline" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; GET /api/pipelines/:id &gt; should return 404 for non-existent pipeline" time="0.009">
+        </testcase>
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; POST /api/pipelines/:id/run &gt; should start pipeline execution" time="0.012">
+        </testcase>
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; POST /api/pipelines/:id/run &gt; should return 404 for non-existent pipeline" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/pipelines.test.ts" name="Pipelines API &gt; GET /api/pipelines/:id/runs &gt; should return empty runs list for pipeline with no runs" time="0.003">
+        </testcase>
+    </testsuite>
+    <testsuite name="services/api/src/tests/runs.test.ts" timestamp="2025-08-24T18:47:28.415Z" hostname="adaptiveX-pc1" tests="12" failures="0" errors="0" skipped="0" time="0.072">
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs &gt; should return empty list when no runs exist" time="0.018">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs &gt; should respect limit parameter" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs &gt; should respect offset parameter" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs &gt; should cap limit at 100" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs &gt; should handle invalid limit parameter" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs/:id &gt; should return 404 for non-existent run" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs/:id &gt; should handle invalid run ID format" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; GET /api/runs/:id/logs &gt; should return 404 for non-existent run logs" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; POST /api/runs/:id/cancel &gt; should return 404 for non-existent run" time="0.004">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; Edge Cases &gt; should handle malformed URLs gracefully" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; Edge Cases &gt; should handle empty request body for cancel operation" time="0.003">
+        </testcase>
+        <testcase classname="services/api/src/tests/runs.test.ts" name="Runs API &gt; Edge Cases &gt; should handle concurrent requests to same run" time="0.017">
+        </testcase>
+    </testsuite>
+</testsuites>

@@ -1,0 +1,227 @@
+import { NodeRunner, ExecutionContext, ExecutionResult } from '../types.js';
+import { spawn } from 'child_process';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
+export class PythonSandboxRunner implements NodeRunner {
+  private readonly pythonNodes = [
+    'DataLoaderNode',
+    'IndicatorNode', 
+    'FeatureGeneratorNode',
+    'LabelingNode',
+    'ModelTrainerNode',
+    'BacktestNode'
+  ];
+  
+  canHandle(nodeType: string): boolean {
+    return this.pythonNodes.includes(nodeType);
+  }
+  
+  async execute(
+    nodeId: string,
+    nodeType: string,
+    parameters: Record<string, any>,
+    inputs: Map<string, any>,
+    context: ExecutionContext
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    const logs: string[] = [];
+    const executionId = uuidv4();
+    
+    try {
+      logs.push(`Executing Python node: ${nodeType} (${nodeId}) in sandbox`);
+      
+      // Create temporary directories for this execution
+      const tempDir = path.join('/tmp', 'edgeql-execution', executionId);
+      const inputDir = path.join(tempDir, 'input');
+      const outputDir = path.join(tempDir, 'output');
+      
+      // Ensure directories exist
+      mkdirSync(inputDir, { recursive: true });
+      mkdirSync(outputDir, { recursive: true });
+      
+      // Prepare input data
+      const inputData = {
+        nodeType,
+        params: parameters,
+        inputs: this.serializeInputs(inputs),
+        context: {
+          runId: context.runId,
+          pipelineId: context.pipelineId,
+          datasets: Object.fromEntries(context.datasets)
+        }
+      };
+      
+      const inputFile = path.join(inputDir, 'input.json');
+      const outputFile = path.join(outputDir, 'output.json');
+      
+      writeFileSync(inputFile, JSON.stringify(inputData, null, 2));
+      logs.push(`Input data written to: ${inputFile}`);
+      
+      // Execute Python node in Docker container
+      const result = await this.runInDockerContainer(
+        nodeType,
+        inputFile,
+        outputFile,
+        tempDir,
+        logs
+      );
+      
+      if (!result.success) {
+        return {
+          success: false,
+          nodeId,
+          error: result.error || 'Unknown execution error',
+          logs,
+          executionTime: Date.now() - startTime
+        };
+      }
+      
+      // Read output
+      if (!existsSync(outputFile)) {
+        throw new Error('Python node did not produce output file');
+      }
+      
+      const outputContent = readFileSync(outputFile, 'utf-8');
+      const output = JSON.parse(outputContent);
+      
+      if (output.error) {
+        throw new Error(`Python node error: ${output.error}`);
+      }
+      
+      logs.push(`Node completed successfully`);
+      
+      return {
+        success: true,
+        nodeId,
+        output: output.result || output,
+        logs,
+        executionTime: Date.now() - startTime,
+        ...(result.memoryUsage !== undefined && { memoryUsage: result.memoryUsage })
+      };
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logs.push(`Python node failed: ${errorMessage}`);
+      
+      return {
+        success: false,
+        nodeId,
+        error: errorMessage,
+        logs,
+        executionTime
+      };
+    }
+  }
+  
+  private serializeInputs(inputs: Map<string, any>): Record<string, any> {
+    const serialized: Record<string, any> = {};
+    for (const [key, value] of inputs) {
+      serialized[key] = value;
+    }
+    return serialized;
+  }
+  
+  private async runInDockerContainer(
+    nodeType: string,
+    inputFile: string,
+    outputFile: string,
+    tempDir: string,
+    logs: string[]
+  ): Promise<{ success: boolean; error?: string; memoryUsage?: number }> {
+    return new Promise((resolve) => {
+      const containerName = `edgeql-python-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      
+      // Docker run command with resource constraints and security settings
+      const dockerArgs = [
+        'run',
+        '--rm',
+        '--name', containerName,
+        '--memory=512m',                    // Memory limit
+        '--cpus=1.0',                       // CPU limit
+        '--network=none',                   // No network access
+        '--read-only',                      // Read-only filesystem
+        '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m', // Temporary filesystem
+        '-v', `${tempDir}:/workspace:rw`,   // Mount workspace
+        '-v', `${process.cwd()}/datasets:/datasets:ro`, // Mount datasets read-only
+        '--user', 'edgeql',                 // Non-root user
+        '--security-opt', 'no-new-privileges', // Security constraint
+        'edgeql-python-sandbox',            // Image name
+        'python', `/workspace/nodes/${nodeType}.py`,
+        '/workspace/input/input.json',
+        '/workspace/output/output.json'
+      ];
+      
+      logs.push(`Starting Docker container: ${containerName}`);
+      logs.push(`Docker command: docker ${dockerArgs.join(' ')}`);
+      
+      const dockerProcess = spawn('docker', dockerArgs, {
+        stdio: 'pipe',
+        timeout: 60000 // 60 second timeout
+      });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      dockerProcess.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+      
+      dockerProcess.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      dockerProcess.on('close', (code) => {
+        logs.push(`Docker container exited with code: ${code}`);
+        
+        if (stdout) {
+          logs.push(`Container stdout: ${stdout.trim()}`);
+        }
+        
+        if (stderr) {
+          logs.push(`Container stderr: ${stderr.trim()}`);
+        }
+        
+        if (code === 0) {
+          const memUsage = this.parseMemoryUsage(stderr);
+          resolve({ 
+            success: true,
+            ...(memUsage !== undefined && { memoryUsage: memUsage })
+          });
+        } else {
+          resolve({ 
+            success: false, 
+            error: `Container exited with code ${code}: ${stderr || 'No error details'}` 
+          });
+        }
+      });
+      
+      dockerProcess.on('error', (error) => {
+        logs.push(`Docker execution error: ${error.message}`);
+        resolve({ 
+          success: false, 
+          error: `Docker execution failed: ${error.message}` 
+        });
+      });
+      
+      // Handle timeout
+      setTimeout(() => {
+        logs.push(`Container execution timeout - killing ${containerName}`);
+        spawn('docker', ['kill', containerName]);
+        resolve({ 
+          success: false, 
+          error: 'Execution timeout (60 seconds)' 
+        });
+      }, 60000);
+    });
+  }
+  
+  private parseMemoryUsage(stderr: string): number | undefined {
+    // Try to extract memory usage from Docker output if available
+    const memoryMatch = stderr.match(/memory usage: (\d+)/i);
+    return memoryMatch?.[1] ? parseInt(memoryMatch[1], 10) : undefined;
+  }
+}

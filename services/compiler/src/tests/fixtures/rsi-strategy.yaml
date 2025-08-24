@@ -1,0 +1,41 @@
+# RSI Oversold/Overbought Strategy
+# This strategy generates signals based on RSI levels:
+# - RSI < 30 = Oversold (BUY signal)
+# - RSI > 70 = Overbought (SELL signal)
+
+pipeline:
+  # Load price data
+  - id: price_data
+    type: DataLoaderNode
+    params:
+      symbol: "ETH/USD"
+      timeframe: "4h"
+      dataset: "ETH_4h_data.csv"
+
+  # Calculate RSI indicator
+  - id: rsi_indicator
+    type: IndicatorNode
+    depends_on: [price_data]
+    params:
+      indicator: "RSI"
+      period: 14
+      column: "close"
+
+  # Generate RSI-based signals
+  - id: rsi_signals
+    type: CrossoverSignalNode
+    depends_on: [rsi_indicator]
+    params:
+      buy_condition: "rsi < 30"
+      sell_condition: "rsi > 70"
+      signal_column: "rsi_signal"
+
+  # Run backtest with different parameters
+  - id: backtest_results
+    type: BacktestNode
+    depends_on: [rsi_signals, price_data]
+    params:
+      initial_capital: 50000
+      commission: 0.0015
+      slippage: 0.001
+      position_size: 0.8

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeQL ML Strategy & Backtesting</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="navbar bg-base-100">
+      <div class="navbar-start">
+        <div class="dropdown">
+          <label tabindex="0" class="btn btn-ghost lg:hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16" />
+            </svg>
+          </label>
+        </div>
+        <a class="btn btn-ghost normal-case text-xl">EdgeQL</a>
+      </div>
+      <div class="navbar-center hidden lg:flex">
+        <ul class="menu menu-horizontal px-1">
+          <li><a href="#pipelines">Pipelines</a></li>
+          <li><a href="#results">Results</a></li>
+          <li><a href="#datasets">Datasets</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="container mx-auto p-6">
+      <div class="hero min-h-96 bg-base-200 rounded-lg">
+        <div class="hero-content text-center">
+          <div class="max-w-md">
+            <h1 class="text-5xl font-bold">EdgeQL</h1>
+            <p class="py-6">Node-Based ML Strategy & Backtesting System</p>
+            <button class="btn btn-primary" onclick="testAPI()">Test API Connection</button>
+            <div id="status" class="mt-4"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats shadow mt-6">
+        <div class="stat">
+          <div class="stat-title">API Status</div>
+          <div class="stat-value" id="api-status">Checking...</div>
+          <div class="stat-desc">Backend connection</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Pipelines</div>
+          <div class="stat-value" id="pipeline-count">0</div>
+          <div class="stat-desc">Available strategies</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Nodes</div>
+          <div class="stat-value" id="node-count">0</div>
+          <div class="stat-desc">Available node types</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

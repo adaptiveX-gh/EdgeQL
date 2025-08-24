@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Python sandbox for ML nodes
+  python-sandbox:
+    build:
+      context: .
+      dockerfile: docker/python-sandbox.Dockerfile
+    image: edgeql-python-sandbox:latest
+    container_name: edgeql-python-sandbox
+    volumes:
+      - ./datasets:/datasets:ro
+      - ./artifacts:/artifacts
+      - /tmp/edgeql-runs:/tmp/runs
+    environment:
+      - PYTHONPATH=/app
+    # Resource limits for security
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    # Network restrictions (no internet access by default)
+    networks:
+      - edgeql-internal
+    # Don't start by default - executor will run containers as needed
+    profiles:
+      - manual
+
+  # Node.js sandbox for JS nodes (Sprint 3)
+  node-sandbox:
+    build:
+      context: .
+      dockerfile: docker/node-sandbox.Dockerfile
+    image: edgeql-nodejs-sandbox:latest
+    container_name: edgeql-nodejs-sandbox
+    volumes:
+      - ./datasets:/datasets:ro
+      - ./artifacts:/artifacts
+      - /tmp/edgeql-runs:/tmp/runs
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - edgeql-internal
+    profiles:
+      - manual
+
+  # Development database (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: edgeql-postgres
+    environment:
+      POSTGRES_DB: edgeql
+      POSTGRES_USER: edgeql
+      POSTGRES_PASSWORD: edgeql_dev_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - edgeql-internal
+    profiles:
+      - database
+
+  # Redis for caching and session storage (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: edgeql-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - edgeql-internal
+    profiles:
+      - cache
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  edgeql-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

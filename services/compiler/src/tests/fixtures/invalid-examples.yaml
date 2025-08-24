@@ -1,0 +1,95 @@
+# Collection of invalid DSL examples for testing error handling
+
+# Example 1: Missing required parameters
+invalid_missing_params:
+  pipeline:
+    - id: data_loader
+      type: DataLoaderNode
+      params:
+        symbol: "BTC/USD"
+        # Missing timeframe and dataset
+
+# Example 2: Circular dependency
+invalid_circular_dependency:
+  pipeline:
+    - id: node_a
+      type: IndicatorNode
+      depends_on: [node_b]
+      params:
+        indicator: "SMA"
+        period: 10
+    
+    - id: node_b
+      type: IndicatorNode
+      depends_on: [node_c]
+      params:
+        indicator: "EMA"
+        period: 20
+    
+    - id: node_c
+      type: IndicatorNode
+      depends_on: [node_a]  # Creates circular dependency
+      params:
+        indicator: "RSI"
+        period: 14
+
+# Example 3: Invalid node ID format
+invalid_node_id:
+  pipeline:
+    - id: "123invalid"  # Cannot start with number
+      type: DataLoaderNode
+      params:
+        symbol: "BTC/USD"
+        timeframe: "1h"
+        dataset: "test.csv"
+
+# Example 4: Unknown node type
+invalid_node_type:
+  pipeline:
+    - id: unknown_node
+      type: UnknownNodeType
+      params:
+        some_param: "value"
+
+# Example 5: Invalid parameter values
+invalid_parameter_values:
+  pipeline:
+    - id: invalid_indicator
+      type: IndicatorNode
+      params:
+        indicator: "INVALID_INDICATOR"
+        period: -5  # Negative period
+        column: "invalid_column"
+    
+    - id: invalid_backtest
+      type: BacktestNode
+      params:
+        initial_capital: -1000  # Negative capital
+        commission: 1.5  # > 100% commission
+        position_size: 2.0  # > 100% position size
+
+# Example 6: Missing dependencies
+invalid_missing_dependency:
+  pipeline:
+    - id: dependent_node
+      type: IndicatorNode
+      depends_on: [non_existent_node]
+      params:
+        indicator: "SMA"
+        period: 10
+
+# Example 7: Duplicate node IDs
+invalid_duplicate_ids:
+  pipeline:
+    - id: duplicate_id
+      type: DataLoaderNode
+      params:
+        symbol: "BTC/USD"
+        timeframe: "1h"
+        dataset: "test.csv"
+    
+    - id: duplicate_id  # Duplicate ID
+      type: IndicatorNode
+      params:
+        indicator: "SMA"
+        period: 10
