@@ -37,8 +37,8 @@ pipeline:
     type: CrossoverSignalNode
     depends_on: [fast_ma, slow_ma]
     params:
-      buy_condition: "fast_ma > slow_ma"
-      sell_condition: "fast_ma < slow_ma"
+      fast_period: 20
+      slow_period: 50
       signal_column: "signal"
 
   # Run backtest

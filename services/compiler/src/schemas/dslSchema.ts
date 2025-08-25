@@ -32,9 +32,17 @@ export const IndicatorParamsSchema = z.object({
 });
 
 export const CrossoverSignalParamsSchema = z.object({
-  buy_condition: StringParamSchema,
-  sell_condition: StringParamSchema,
-  signal_column: StringParamSchema.optional().default('signal')
+  fast_period: PositiveNumberParamSchema,
+  slow_period: PositiveNumberParamSchema,
+  signal_column: StringParamSchema.optional().default('signal'),
+  fast_ma_column: StringParamSchema.optional(),
+  slow_ma_column: StringParamSchema.optional(),
+  buy_threshold: z.number().min(0).optional().default(0.0),
+  sell_threshold: z.number().min(0).optional().default(0.0),
+  confirmation_periods: PositiveNumberParamSchema.optional().default(1)
+}).refine((data) => data.fast_period < data.slow_period, {
+  message: "fast_period must be less than slow_period",
+  path: ["slow_period"]
 });
 
 export const BacktestParamsSchema = z.object({

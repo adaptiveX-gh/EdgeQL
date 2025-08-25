@@ -41,7 +41,8 @@ export class PipelineValidator {
         runtime: 'builtin',
         inputSchema: { type: 'multiple_dataframes' },
         outputSchema: { type: 'dataframe' },
-        requiredParams: ['buy_condition', 'sell_condition']
+        requiredParams: ['fast_period', 'slow_period'],
+        optionalParams: ['signal_column', 'fast_ma_column', 'slow_ma_column', 'buy_threshold', 'sell_threshold', 'confirmation_periods']
       },
       {
         id: 'BacktestNode',

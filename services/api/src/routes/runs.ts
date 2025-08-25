@@ -3,6 +3,35 @@ import type { Router as RouterType } from 'express';
 import { PipelineRun, ApiResponse } from '../types/index.js';
 import { RunStorage } from '../utils/storage.js';
 
+// Helper function to convert snake_case results to camelCase for frontend
+function transformBacktestResults(results: any): any {
+  if (!results || typeof results !== 'object') return results;
+  
+  const transformed: any = {};
+  
+  // Handle snake_case to camelCase conversion
+  const keyMapping: Record<string, string> = {
+    'total_return': 'totalReturn',
+    'annual_return': 'annualReturn', 
+    'sharpe_ratio': 'sharpeRatio',
+    'max_drawdown': 'maxDrawdown',
+    'max_drawdown_duration': 'maxDrawdownDuration',
+    'num_trades': 'numTrades',
+    'win_rate': 'winRate',
+    'profit_factor': 'profitFactor',
+    'avg_trade_return': 'avgTradeReturn',
+    'final_capital': 'finalCapital',
+    'equity_curve': 'equityCurve'
+  };
+  
+  for (const [key, value] of Object.entries(results)) {
+    const camelKey = keyMapping[key] || key;
+    transformed[camelKey] = value;
+  }
+  
+  return transformed;
+}
+
 const router: RouterType = Router();
 
 // GET /api/runs/:id - Get specific run details
@@ -17,9 +46,15 @@ router.get('/:id', async (req, res) => {
       } as ApiResponse);
     }
     
+    // Transform results to camelCase for frontend compatibility
+    const transformedRun = {
+      ...run,
+      results: run.results ? transformBacktestResults(run.results) : undefined
+    };
+    
     const response: ApiResponse<PipelineRun> = {
       success: true,
-      data: run
+      data: transformedRun
     };
     return res.json(response);
   } catch (error) {
@@ -110,7 +145,7 @@ router.get('/:id/logs/stream', async (req, res) => {
           res.write(`data: ${JSON.stringify({ 
             status: updatedRun.status,
             final: true,
-            results: updatedRun.results
+            results: updatedRun.results ? transformBacktestResults(updatedRun.results) : undefined
           })}\n\n`);
           res.end();
           clearInterval(intervalId);
@@ -188,7 +223,11 @@ router.get('/', async (req, res) => {
     const allRuns = await RunStorage.getAll();
     const paginatedRuns = allRuns
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-      .slice(offset, offset + limit);
+      .slice(offset, offset + limit)
+      .map(run => ({
+        ...run,
+        results: run.results ? transformBacktestResults(run.results) : undefined
+      }));
     
     const response: ApiResponse<PipelineRun[]> = {
       success: true,

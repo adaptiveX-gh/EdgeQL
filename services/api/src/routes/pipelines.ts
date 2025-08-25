@@ -160,6 +160,32 @@ router.post('/:id/run', async (req, res) => {
           if (backtestResult && (backtestResult as any).data) {
             run.results = (backtestResult as any).data;
             run.logs.push(`Backtest completed: ${JSON.stringify((backtestResult as any).data, null, 2)}`);
+          } else {
+            // Fallback: Try to extract results from node outputs
+            const backtestOutput = executionResult.finalOutputs.get('backtest');
+            if (backtestOutput && backtestOutput.type === 'backtest_results' && backtestOutput.data) {
+              run.results = backtestOutput.data;
+              run.logs.push(`Backtest completed: ${JSON.stringify(backtestOutput.data, null, 2)}`);
+            } else {
+              // Final fallback: Extract from logs if backtest completed message exists
+              const backtestLogIndex = run.logs.findIndex(log => log.includes('Backtest completed:'));
+              if (backtestLogIndex !== -1) {
+                try {
+                  const backtestLogLine = run.logs[backtestLogIndex];
+                  if (backtestLogLine) {
+                    const jsonStart = backtestLogLine.indexOf('{');
+                    if (jsonStart !== -1) {
+                      const jsonStr = backtestLogLine.substring(jsonStart);
+                      const parsedResults = JSON.parse(jsonStr);
+                      run.results = parsedResults;
+                      console.log('Extracted backtest results from logs');
+                    }
+                  }
+                } catch (error) {
+                  console.error('Failed to parse backtest results from logs:', error);
+                }
+              }
+            }
           }
           
           // Add execution logs from each node

@@ -82,6 +82,13 @@
   };
 
   const updateRunStatus = (run: PipelineRun) => {
+    // Debug logging
+    if (run.status === 'completed' && run.results) {
+      console.log('Run completed with results:', run.results);
+      console.log('numTrades:', run.results.numTrades);
+      console.log('totalReturn:', run.results.totalReturn);
+    }
+    
     switch (run.status) {
       case 'pending':
         runStatus = 'Pipeline queued for execution...';
