@@ -1,9 +1,12 @@
 import type { 
   Pipeline, 
   PipelineRun, 
+  PipelineVersion,
   ApiResponse, 
   Dataset,
-  PipelineIR
+  PipelineIR,
+  CustomNode,
+  LogEntry
 } from './types.js';
 
 // Base API configuration
@@ -112,6 +115,44 @@ export const pipelineApi = {
       body: JSON.stringify({ dsl }),
     });
   },
+
+  // Version management methods
+  async getVersions(id: string): Promise<PipelineVersion[]> {
+    return fetchApi<PipelineVersion[]>(`/pipelines/${id}/versions`);
+  },
+
+  async getVersion(id: string, versionId: string): Promise<PipelineVersion> {
+    return fetchApi<PipelineVersion>(`/pipelines/${id}/versions/${versionId}`);
+  },
+
+  async createVersion(id: string, options: {
+    dsl: string;
+    commitMessage?: string;
+    isAutoSave?: boolean;
+    tags?: string[];
+    createdBy?: string;
+  }): Promise<PipelineVersion> {
+    return fetchApi<PipelineVersion>(`/pipelines/${id}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    });
+  },
+
+  async restoreVersion(id: string, versionId: string, options?: {
+    createBackup?: boolean;
+    commitMessage?: string;
+  }): Promise<{ restoredVersion: PipelineVersion; backupVersion?: PipelineVersion }> {
+    return fetchApi<{ restoredVersion: PipelineVersion; backupVersion?: PipelineVersion }>(`/pipelines/${id}/versions/${versionId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    });
+  },
+
+  async deleteVersion(id: string, versionId: string): Promise<{ deleted: boolean }> {
+    return fetchApi<{ deleted: boolean }>(`/pipelines/${id}/versions/${versionId}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // Run API methods
@@ -124,6 +165,26 @@ export const runApi = {
     return fetchApi<string[]>(`/runs/${id}/logs`);
   },
 
+  async getStructuredLogs(id: string, options?: {
+    nodeId?: string;
+    level?: 'info' | 'warn' | 'error' | 'debug';
+    source?: 'system' | 'node';
+    limit?: number;
+    offset?: number;
+  }): Promise<{ logs: LogEntry[]; total: number; hasMore: boolean }> {
+    const params = new URLSearchParams();
+    if (options?.nodeId) params.set('nodeId', options.nodeId);
+    if (options?.level) params.set('level', options.level);
+    if (options?.source) params.set('source', options.source);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    
+    const query = params.toString();
+    const url = query ? `/runs/${id}/structured-logs?${query}` : `/runs/${id}/structured-logs`;
+    
+    return fetchApi<{ logs: LogEntry[]; total: number; hasMore: boolean }>(url);
+  },
+
   async cancel(id: string): Promise<PipelineRun> {
     return fetchApi<PipelineRun>(`/runs/${id}/cancel`, {
       method: 'POST',
@@ -132,6 +193,36 @@ export const runApi = {
 
   async list(limit = 50, offset = 0): Promise<PipelineRun[]> {
     return fetchApi<PipelineRun[]>(`/runs?limit=${limit}&offset=${offset}`);
+  },
+
+  // Export functionality - returns download URLs that trigger browser downloads
+  exportTrades(id: string): string {
+    return `${API_BASE}/runs/${id}/export/trades`;
+  },
+
+  exportMetrics(id: string): string {
+    return `${API_BASE}/runs/${id}/export/metrics`;
+  },
+
+  // Helper method to trigger downloads programmatically
+  async downloadTrades(id: string): Promise<void> {
+    const url = this.exportTrades(id);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `trades-${id}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  async downloadMetrics(id: string): Promise<void> {
+    const url = this.exportMetrics(id);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `metrics-${id}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 };
 
@@ -244,6 +335,57 @@ export class RunPoller {
     this.callbacks = [];
   }
 }
+
+// Node API methods
+export const nodeApi = {
+  async list(): Promise<any[]> {
+    return fetchApi<any[]>('/nodes');
+  },
+
+  async getBuiltIn(): Promise<any[]> {
+    return fetchApi<any[]>('/nodes/builtin');
+  },
+
+  async getCustomNodes(): Promise<CustomNode[]> {
+    return fetchApi<CustomNode[]>('/nodes/custom');
+  },
+
+  async get(id: string): Promise<CustomNode> {
+    return fetchApi<CustomNode>(`/nodes/${id}`);
+  },
+
+  async create(node: {
+    name: string;
+    description?: string;
+    code: string;
+    inputSchema?: any;
+    outputSchema?: any;
+  }): Promise<CustomNode> {
+    return fetchApi<CustomNode>('/nodes', {
+      method: 'POST',
+      body: JSON.stringify(node),
+    });
+  },
+
+  async update(id: string, node: {
+    name?: string;
+    description?: string;
+    code?: string;
+    inputSchema?: any;
+    outputSchema?: any;
+  }): Promise<CustomNode> {
+    return fetchApi<CustomNode>(`/nodes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(node),
+    });
+  },
+
+  async delete(id: string): Promise<{ deleted: boolean }> {
+    return fetchApi<{ deleted: boolean }>(`/nodes/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
 
 // Export the error class
 export { ApiError };

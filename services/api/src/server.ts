@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import { pipelinesRouter } from './routes/pipelines.js';
 import { runsRouter } from './routes/runs.js';
 import { nodesRouter } from './routes/nodes.js';
@@ -15,6 +16,7 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(cors());
 app.use(morgan('combined'));
+app.use(compression()); // Enable gzip compression for all responses
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

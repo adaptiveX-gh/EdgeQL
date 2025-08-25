@@ -1,4 +1,4 @@
-import { NodeRunner, ExecutionContext, ExecutionResult } from '../types.js';
+import { NodeRunner, ExecutionContext, ExecutionResult, LogEntry } from '../types.js';
 import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
@@ -11,7 +11,8 @@ export class NodejsSandboxRunner implements NodeRunner {
     'FilterNode',
     'AggregationNode',
     'JoinNode',
-    'ValidationNode'
+    'ValidationNode',
+    'CustomJSNode' // Support for custom JavaScript nodes
   ];
   
   // Track running containers by runId for cancellation
@@ -51,6 +52,7 @@ export class NodejsSandboxRunner implements NodeRunner {
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
     const logs: string[] = [];
+    const structuredLogs: LogEntry[] = [];
     const executionId = uuidv4();
     
     try {
@@ -63,6 +65,7 @@ export class NodejsSandboxRunner implements NodeRunner {
           nodeId,
           error: 'Execution was cancelled',
           logs: [...logs, 'Execution cancelled before starting'],
+          structuredLogs,
           executionTime: Date.now() - startTime
         };
       }
@@ -76,7 +79,15 @@ export class NodejsSandboxRunner implements NodeRunner {
       mkdirSync(inputDir, { recursive: true });
       mkdirSync(outputDir, { recursive: true });
       
-      // Prepare input data
+      // Prepare input data with sandbox configuration
+      const sandboxConfig = {
+        memoryLimit: parameters.memoryLimit || 512, // MB
+        timeLimit: parameters.timeLimit || 30, // seconds
+        enableNetworking: parameters.enableNetworking || false,
+        enableFileSystem: parameters.enableFileSystem || false,
+        allowedModules: parameters.allowedModules || []
+      };
+
       const inputData = {
         nodeType,
         params: parameters,
@@ -84,12 +95,16 @@ export class NodejsSandboxRunner implements NodeRunner {
         context: {
           runId: context.runId,
           pipelineId: context.pipelineId,
+          nodeId: nodeId,
           datasets: Object.fromEntries(context.datasets)
-        }
+        },
+        sandboxConfig,
+        userCode: parameters.code || '' // For CustomJSNode
       };
       
       const inputFile = path.join(inputDir, 'input.json');
       const outputFile = path.join(outputDir, 'output.json');
+      const logsFile = path.join(outputDir, 'logs.json');
       
       writeFileSync(inputFile, JSON.stringify(inputData, null, 2));
       logs.push(`Input data written to: ${inputFile}`);
@@ -99,18 +114,30 @@ export class NodejsSandboxRunner implements NodeRunner {
         nodeType,
         inputFile,
         outputFile,
+        logsFile,
         tempDir,
         logs,
+        structuredLogs,
         context.runId,
-        context
+        context,
+        sandboxConfig
       );
       
       if (!result.success) {
+        structuredLogs.push({
+          timestamp: new Date().toISOString(),
+          nodeId,
+          level: 'error',
+          message: result.error || 'Unknown execution error',
+          source: 'system'
+        });
+        
         return {
           success: false,
           nodeId,
           error: result.error || 'Unknown execution error',
           logs,
+          structuredLogs,
           executionTime: Date.now() - startTime
         };
       }
@@ -123,19 +150,45 @@ export class NodejsSandboxRunner implements NodeRunner {
       const outputContent = readFileSync(outputFile, 'utf-8');
       const output = JSON.parse(outputContent);
       
-      if (output.error) {
-        throw new Error(`Node.js node error: ${output.error}`);
+      if (!output.success) {
+        // Handle sandbox violations with detailed error reporting
+        const errorMessage = output.error || 'Unknown execution error';
+        const violationType = output.violationType || 'RUNTIME_ERROR';
+        const details = output.details || {};
+        
+        logs.push(`Sandbox violation: ${violationType} - ${errorMessage}`);
+        if (details && Object.keys(details).length > 0) {
+          logs.push(`Violation details: ${JSON.stringify(details, null, 2)}`);
+        }
+        
+        throw new Error(`Sandbox violation [${violationType}]: ${errorMessage}`);
       }
       
+      // Try to read structured logs if available
+      this.readStructuredLogs(logsFile, structuredLogs, nodeId, nodeType);
+      
       logs.push(`Node completed successfully`);
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'info',
+        message: `Node ${nodeType} completed successfully`,
+        source: 'system'
+      });
+      
+      // Include execution statistics from sandbox
+      const executionStats = output.stats || {};
       
       return {
         success: true,
         nodeId,
         output: output.result || output,
         logs,
+        structuredLogs,
         executionTime: Date.now() - startTime,
-        ...(result.memoryUsage !== undefined && { memoryUsage: result.memoryUsage })
+        memoryUsage: executionStats.memoryUsed || result.memoryUsage,
+        peakMemory: executionStats.peakMemory,
+        sandboxStats: executionStats
       };
       
     } catch (error) {
@@ -143,12 +196,20 @@ export class NodejsSandboxRunner implements NodeRunner {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       logs.push(`Node.js node failed: ${errorMessage}`);
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'error',
+        message: `Node.js node failed: ${errorMessage}`,
+        source: 'system'
+      });
       
       return {
         success: false,
         nodeId,
         error: errorMessage,
         logs,
+        structuredLogs,
         executionTime
       };
     }
@@ -166,10 +227,13 @@ export class NodejsSandboxRunner implements NodeRunner {
     nodeType: string,
     inputFile: string,
     outputFile: string,
+    logsFile: string,
     tempDir: string,
     logs: string[],
+    structuredLogs: LogEntry[],
     runId: string,
-    context: ExecutionContext
+    context: ExecutionContext,
+    sandboxConfig: any
   ): Promise<{ success: boolean; error?: string; memoryUsage?: number }> {
     return new Promise((resolve) => {
       const containerName = `edgeql-nodejs-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -183,24 +247,40 @@ export class NodejsSandboxRunner implements NodeRunner {
       const projectRoot = this.findProjectRoot();
       const dockerDatasetsDir = this.convertToDockerPath(path.join(projectRoot, 'datasets'));
       
-      // Docker run command with resource constraints and security settings
+      // Enhanced Docker run command with configurable resource constraints
+      const memoryLimit = `${sandboxConfig.memoryLimit}m`;
+      const cpuLimit = Math.min(sandboxConfig.timeLimit / 30, 1.0).toString(); // Scale CPU with time limit
+      
       const dockerArgs = [
         'run',
         '--rm',
         '--name', containerName,
-        '--memory=256m',                    // Memory limit (less than Python)
-        '--cpus=0.5',                       // CPU limit
-        '--network=none',                   // No network access
+        '--memory', memoryLimit,            // Configurable memory limit
+        '--memory-swap', memoryLimit,       // Prevent swap usage
+        '--cpus', cpuLimit,                 // Configurable CPU limit
+        '--pids-limit', '50',               // Limit process creation
+        '--ulimit', 'nproc=10:20',          // Process limits
+        '--ulimit', 'nofile=100:200',       // File descriptor limits
+        sandboxConfig.enableNetworking ? '--net=bridge' : '--network=none', // Network access control
         '--read-only',                      // Read-only filesystem
-        '--tmpfs', '/tmp:rw,noexec,nosuid,size=50m', // Temporary filesystem
-        '-v', `${dockerTempDir}:/workspace:rw`,   // Mount workspace
-        '-v', `${dockerDatasetsDir}:/datasets:ro`, // Mount datasets read-only
+        '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m', // Secure temporary filesystem
+        '--tmpfs', '/workspace:rw,noexec,nosuid,size=50m', // Workspace tmpfs
+        '-v', `${dockerTempDir}/input:/workspace/input:ro`, // Input read-only
+        '-v', `${dockerTempDir}/output:/workspace/output:rw`, // Output writable
+        '-v', `${dockerDatasetsDir}:/datasets:ro`, // Datasets read-only
         '--user', 'edgeql',                 // Non-root user
         '--security-opt', 'no-new-privileges', // Security constraint
-        'edgeql-nodejs-sandbox',            // Image name
-        'node', `/workspace/nodes/${nodeType}.js`,
+        '--security-opt', 'seccomp=default', // Seccomp profile
+        '--cap-drop', 'ALL',                // Drop all capabilities
+        '--env', `SANDBOX_MEMORY_MB=${sandboxConfig.memoryLimit}`,
+        '--env', `SANDBOX_TIME_SECONDS=${sandboxConfig.timeLimit}`,
+        '--env', `SANDBOX_ENABLE_NET=${sandboxConfig.enableNetworking}`,
+        '--env', `SANDBOX_ENABLE_FS=${sandboxConfig.enableFileSystem}`,
+        '--env', `SANDBOX_ALLOWED_MODULES=${sandboxConfig.allowedModules.join(',')}`,
+        'edgeql-nodejs-sandbox',            // Enhanced image name
         '/workspace/input/input.json',
-        '/workspace/output/output.json'
+        '/workspace/output/output.json',
+        '/workspace/output/logs.json'
       ];
       
       logs.push(`Starting Docker container: ${containerName}`);
@@ -216,7 +296,7 @@ export class NodejsSandboxRunner implements NodeRunner {
       
       const dockerProcess = spawn('docker', dockerArgs, {
         stdio: 'pipe',
-        timeout: 30000, // 30 second timeout (less than Python)
+        timeout: (sandboxConfig.timeLimit + 5) * 1000, // Configurable timeout with buffer
         env: dockerEnv
       });
       
@@ -285,7 +365,8 @@ export class NodejsSandboxRunner implements NodeRunner {
         });
       });
       
-      // Handle timeout
+      // Handle timeout with configurable duration
+      const timeoutMs = (sandboxConfig.timeLimit + 5) * 1000;
       const timeoutId = setTimeout(() => {
         if (this.runningContainers.has(runId)) {
           logs.push(`Container execution timeout - killing ${containerName}`);
@@ -293,16 +374,38 @@ export class NodejsSandboxRunner implements NodeRunner {
           this.runningContainers.delete(runId);
           resolve({ 
             success: false, 
-            error: 'Execution timeout (30 seconds)' 
+            error: `Execution timeout (${sandboxConfig.timeLimit} seconds)` 
           });
         }
-      }, 30000);
+      }, timeoutMs);
       
       // Clear timeout if process completes normally
       dockerProcess.on('close', () => {
         clearTimeout(timeoutId);
       });
     });
+  }
+  
+  private readStructuredLogs(logsFile: string, structuredLogs: LogEntry[], nodeId: string, nodeType: string): void {
+    try {
+      if (existsSync(logsFile)) {
+        const logsContent = readFileSync(logsFile, 'utf-8');
+        const nodeLogs = JSON.parse(logsContent);
+        
+        if (Array.isArray(nodeLogs)) {
+          structuredLogs.push(...nodeLogs);
+        }
+      }
+    } catch (error) {
+      // If we can't read the logs file, add a system log entry
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'warn',
+        message: `Could not read structured logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        source: 'system'
+      });
+    }
   }
   
   private parseMemoryUsage(stderr: string): number | undefined {

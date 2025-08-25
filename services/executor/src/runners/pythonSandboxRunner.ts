@@ -1,4 +1,4 @@
-import { NodeRunner, ExecutionContext, ExecutionResult } from '../types.js';
+import { NodeRunner, ExecutionContext, ExecutionResult, LogEntry } from '../types.js';
 import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
@@ -52,6 +52,7 @@ export class PythonSandboxRunner implements NodeRunner {
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
     const logs: string[] = [];
+    const structuredLogs: LogEntry[] = [];
     const executionId = uuidv4();
     
     try {
@@ -85,12 +86,14 @@ export class PythonSandboxRunner implements NodeRunner {
         context: {
           runId: context.runId,
           pipelineId: context.pipelineId,
+          nodeId: nodeId,
           datasets: Object.fromEntries(context.datasets)
         }
       };
       
       const inputFile = path.join(inputDir, 'input.json');
       const outputFile = path.join(outputDir, 'output.json');
+      const logsFile = path.join(outputDir, 'logs.json');
       
       writeFileSync(inputFile, JSON.stringify(inputData, null, 2));
       logs.push(`Input data written to: ${inputFile}`);
@@ -100,8 +103,10 @@ export class PythonSandboxRunner implements NodeRunner {
         nodeType,
         inputFile,
         outputFile,
+        logsFile,
         tempDir,
         logs,
+        structuredLogs,
         context.runId,
         context
       );
@@ -128,13 +133,24 @@ export class PythonSandboxRunner implements NodeRunner {
         throw new Error(`Python node error: ${output.error}`);
       }
       
+      // Try to read structured logs if available
+      this.readStructuredLogs(logsFile, structuredLogs, nodeId, nodeType);
+      
       logs.push(`Node completed successfully`);
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'info',
+        message: `Node ${nodeType} completed successfully`,
+        source: 'system'
+      });
       
       return {
         success: true,
         nodeId,
         output: output.result || output,
         logs,
+        structuredLogs,
         executionTime: Date.now() - startTime,
         ...(result.memoryUsage !== undefined && { memoryUsage: result.memoryUsage })
       };
@@ -144,12 +160,20 @@ export class PythonSandboxRunner implements NodeRunner {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       logs.push(`Python node failed: ${errorMessage}`);
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'error',
+        message: `Python node failed: ${errorMessage}`,
+        source: 'system'
+      });
       
       return {
         success: false,
         nodeId,
         error: errorMessage,
         logs,
+        structuredLogs,
         executionTime
       };
     }
@@ -167,8 +191,10 @@ export class PythonSandboxRunner implements NodeRunner {
     nodeType: string,
     inputFile: string,
     outputFile: string,
+    logsFile: string,
     tempDir: string,
     logs: string[],
+    structuredLogs: LogEntry[],
     runId: string,
     context: ExecutionContext
   ): Promise<{ success: boolean; error?: string; memoryUsage?: number }> {
@@ -201,7 +227,8 @@ export class PythonSandboxRunner implements NodeRunner {
         'edgeql-python-sandbox',            // Image name
         'python', `/app/nodes/${nodeType}.py`,
         '/workspace/input/input.json',
-        '/workspace/output/output.json'
+        '/workspace/output/output.json',
+        '/workspace/output/logs.json'
       ];
       
       logs.push(`Starting Docker container: ${containerName}`);
@@ -295,6 +322,28 @@ export class PythonSandboxRunner implements NodeRunner {
         clearTimeout(timeoutId);
       });
     });
+  }
+  
+  private readStructuredLogs(logsFile: string, structuredLogs: LogEntry[], nodeId: string, nodeType: string): void {
+    try {
+      if (existsSync(logsFile)) {
+        const logsContent = readFileSync(logsFile, 'utf-8');
+        const nodeLogs = JSON.parse(logsContent);
+        
+        if (Array.isArray(nodeLogs)) {
+          structuredLogs.push(...nodeLogs);
+        }
+      }
+    } catch (error) {
+      // If we can't read the logs file, add a system log entry
+      structuredLogs.push({
+        timestamp: new Date().toISOString(),
+        nodeId,
+        level: 'warn',
+        message: `Could not read structured logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        source: 'system'
+      });
+    }
   }
   
   private parseMemoryUsage(stderr: string): number | undefined {

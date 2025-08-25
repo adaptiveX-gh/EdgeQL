@@ -1,0 +1,1 @@
+export function run(input) { return { processed: input }; }

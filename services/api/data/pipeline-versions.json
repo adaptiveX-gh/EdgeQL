@@ -1,0 +1,44 @@
+[
+  {
+    "id": "5ab6ed96-9331-4219-b8ce-6a6e06a24c35",
+    "pipelineId": "sample-ma-crossover",
+    "version": 1,
+    "dsl": "# Initial version\npipeline:\n  - id: test\n    type: TestNode",
+    "commitMessage": "Initial version",
+    "createdAt": "2025-08-25T03:04:52.002Z",
+    "isAutoSave": false,
+    "tags": []
+  },
+  {
+    "id": "3c8756e4-b5d6-499d-94ab-d76ad0e9e3ce",
+    "pipelineId": "sample-ma-crossover",
+    "version": 2,
+    "dsl": "# Test Custom Node Pipeline\npipeline:\n  - id: data_loader\n    type: DataLoaderNode\n    params:\n      symbol: \"BTC/USD\"\n      timeframe: \"1h\"\n      dataset: \"sample_ohlcv.csv\"\n      \n  - id: custom_aggregation\n    type: AggregationNode\n    depends_on: [data_loader]\n    params:\n      operation: \"mean\"\n      columns: [\"close\", \"volume\"]\n      \n  - id: sma_fast\n    type: IndicatorNode\n    depends_on: [data_loader]\n    params:\n      indicator: \"SMA\"\n      period: 10\n      column: \"close\"\n      \n  - id: signals\n    type: CrossoverSignalNode\n    depends_on: [sma_fast, data_loader]\n    params:\n      fast_period: 10\n      slow_period: 20\n      \n  - id: backtest\n    type: BacktestNode\n    depends_on: [signals, data_loader]\n    params:\n      initial_capital: 100000\n      commission: 0.001",
+    "commitMessage": "Version 2",
+    "createdAt": "2025-08-25T03:16:32.196Z",
+    "isAutoSave": false,
+    "tags": []
+  },
+  {
+    "id": "e184835b-b008-4d74-8766-2d17d9f3fbc4",
+    "pipelineId": "sample-ma-crossover",
+    "version": 3,
+    "dsl": "# Test Custom Node Pipeline\npipeline:\n  - id: data_loader\n    type: DataLoaderNode\n    params:\n      symbol: \"BTC/USD\"\n      timeframe: \"1h\"\n      dataset: \"sample_ohlcv.csv\"\n      \n  - id: custom_aggregation\n    type: AggregationNode\n    depends_on: [data_loader]\n    params:\n      operation: \"mean\"\n      columns: [\"close\", \"volume\"]\n      \n  - id: sma_fast\n    type: IndicatorNode\n    depends_on: [data_loader]\n    params:\n      indicator: \"SMA\"\n      period: 10\n      column: \"close\"\n      \n  - id: signals\n    type: CrossoverSignalNode\n    depends_on: [sma_fast, data_loader]\n    params:\n      fast_period: 10\n      slow_period: 20\n      \n  - id: backtest\n    type: BacktestNode\n    depends_on: [signals, data_loader]\n    params:\n      initial_capital: 100000\n      commission: 0.001",
+    "commitMessage": "Restored from v2",
+    "createdAt": "2025-08-25T03:16:37.004Z",
+    "isAutoSave": false,
+    "tags": [
+      "restored"
+    ]
+  },
+  {
+    "id": "48f6fa62-377b-4814-8a28-d33bee669509",
+    "pipelineId": "sample-ma-crossover",
+    "version": 4,
+    "dsl": "# Test Custom Node Pipeline\npipeline:\n  - id: data_loader\n    type: DataLoaderNode\n    params:\n      symbol: \"BTC/USD\"\n      timeframe: \"1m\"\n      dataset: \"sample_ohlcv.csv\"\n      \n  - id: custom_aggregation\n    type: AggregationNode\n    depends_on: [data_loader]\n    params:\n      operation: \"mean\"\n      columns: [\"close\", \"volume\"]\n      \n  - id: sma_fast\n    type: IndicatorNode\n    depends_on: [data_loader]\n    params:\n      indicator: \"SMA\"\n      period: 10\n      column: \"close\"\n      \n  - id: signals\n    type: CrossoverSignalNode\n    depends_on: [sma_fast, data_loader]\n    params:\n      fast_period: 10\n      slow_period: 20\n      \n  - id: backtest\n    type: BacktestNode\n    depends_on: [signals, data_loader]\n    params:\n      initial_capital: 100000\n      commission: 0.001",
+    "commitMessage": "Manual save v4",
+    "createdAt": "2025-08-25T03:27:07.447Z",
+    "isAutoSave": false,
+    "tags": []
+  }
+]

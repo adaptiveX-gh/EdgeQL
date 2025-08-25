@@ -7,6 +7,33 @@ export interface Pipeline {
   createdAt: string;
   updatedAt: string;
   userId?: string;
+  currentVersion?: number;
+  // Observer mode support
+  observerTokens?: string[];
+  readOnly?: boolean;
+  isObserverMode?: boolean;
+}
+
+export interface PipelineVersion {
+  id: string;
+  pipelineId: string;
+  version: number;
+  name?: string;
+  description?: string;
+  dsl: string;
+  commitMessage?: string;
+  createdAt: string;
+  createdBy?: string;
+  isAutoSave: boolean;
+  tags?: string[];
+}
+
+export interface LogEntry {
+  timestamp: string;
+  nodeId: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  source: 'system' | 'node';
 }
 
 export interface PipelineRun {
@@ -16,7 +43,8 @@ export interface PipelineRun {
   startTime: string;
   endTime?: string;
   results?: BacktestResults;
-  logs: string[];
+  logs: string[]; // Legacy string logs for backward compatibility
+  structuredLogs?: LogEntry[]; // New structured logs with node identification
   error?: string;
 }
 
@@ -51,11 +79,21 @@ export interface CustomNode {
   language: 'javascript' | 'python' | 'wasm';
   code: string;
   description?: string;
+  author?: string;
   inputSchema?: any;
   outputSchema?: any;
   createdAt: string;
   updatedAt: string;
+  version: number;
   userId?: string;
+  tags?: string[];
+}
+
+export interface CustomNodeVersion {
+  version: number;
+  code: string;
+  timestamp: string;
+  changeDescription?: string;
 }
 
 export interface Dataset {
@@ -74,4 +112,20 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+}
+
+export interface ObserverTokenResponse {
+  observerToken: string;
+  observerUrl: string;
+  expiresAt?: string;
+}
+
+export interface ObserverAccess {
+  id: string;
+  pipelineId: string;
+  token: string;
+  createdAt: string;
+  expiresAt?: string;
+  lastAccessedAt?: string;
+  accessCount: number;
 }

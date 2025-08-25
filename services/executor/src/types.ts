@@ -7,14 +7,25 @@ export interface ExecutionContext {
   cancelled?: boolean; // Add cancellation flag
 }
 
+export interface LogEntry {
+  timestamp: string;
+  nodeId: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  source: 'system' | 'node';
+}
+
 export interface ExecutionResult {
   success: boolean;
   nodeId: string;
   output?: any;
   error?: string;
-  logs: string[];
+  logs: string[]; // Keep legacy string logs for backward compatibility
+  structuredLogs?: LogEntry[]; // New structured logs (optional for backward compatibility)
   executionTime: number;
   memoryUsage?: number;
+  peakMemory?: number; // Peak memory usage for sandbox monitoring
+  sandboxStats?: any; // Additional sandbox statistics
 }
 
 export interface NodeRunner {

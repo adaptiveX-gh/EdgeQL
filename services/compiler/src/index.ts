@@ -12,7 +12,13 @@ import {
   IRDependency
 } from './types.js';
 import { ValidationReport } from './types/validationTypes.js';
-import { getNodeOutputSchema } from './schemas/nodeSchemas.js';
+import { 
+  getNodeOutputSchema, 
+  getNodeOutputSchemaEnhanced,
+  isCustomNode,
+  validatePipelineDataFlowEnhanced
+} from './schemas/nodeSchemas.js';
+import { getCustomNodeRegistry } from './registry/CustomNodeRegistry.js';
 
 export class PipelineCompiler {
   public parser: YAMLParser;
@@ -46,6 +52,15 @@ export class PipelineCompiler {
       return {
         success: false,
         errors: validationErrors
+      };
+    }
+    
+    // Step 2.5: Validate custom node references
+    const customNodeValidation = this.validateCustomNodeReferences(pipeline);
+    if (!customNodeValidation.valid) {
+      return {
+        success: false,
+        errors: customNodeValidation.errors
       };
     }
     
@@ -92,6 +107,15 @@ export class PipelineCompiler {
       };
     }
     
+    // Step 2.5: Validate custom node references
+    const customNodeValidation = this.validateCustomNodeReferences(pipeline);
+    if (!customNodeValidation.valid) {
+      return {
+        success: false,
+        errors: customNodeValidation.errors
+      };
+    }
+    
     // Step 3: Generate JSON IR
     try {
       const ir = this.generateIR(pipeline, pipelineId, pipelineName, pipelineDescription);
@@ -128,7 +152,7 @@ export class PipelineCompiler {
         dependencies: node.depends_on || [],
         parameters: node.params,
         inputSchema: this.getInputSchema(node.type),
-        outputSchema: getNodeOutputSchema(node.type, node.params)
+        outputSchema: getNodeOutputSchemaEnhanced(node.type, node.params)
       };
     });
     
@@ -202,18 +226,41 @@ export class PipelineCompiler {
   }
   
   private determineRuntime(nodeType: string): 'builtin' | 'javascript' | 'python' | 'wasm' {
-    // For MVP, all nodes are builtin
     const builtinNodes = ['DataLoaderNode', 'IndicatorNode', 'CrossoverSignalNode', 'BacktestNode'];
     
     if (builtinNodes.includes(nodeType)) {
       return 'builtin';
     }
     
-    // Future: determine runtime based on custom node definitions
-    return 'javascript'; // Default for custom nodes
+    // Check if it's a registered custom node
+    try {
+      const registry = getCustomNodeRegistry();
+      const customNode = registry.getNode(nodeType);
+      if (customNode) {
+        return customNode.runtime;
+      }
+    } catch (error) {
+      console.warn(`Failed to get custom node registry for ${nodeType}:`, error);
+    }
+    
+    // Default for unknown nodes (will likely cause validation error later)
+    return 'javascript';
   }
   
   private getInputSchema(nodeType: string): any {
+    // Check if it's a custom node first
+    if (isCustomNode(nodeType)) {
+      try {
+        const registry = getCustomNodeRegistry();
+        const customNode = registry.getNode(nodeType);
+        return customNode?.inputSchema || {};
+      } catch (error) {
+        console.warn(`Failed to get custom node registry input schema for ${nodeType}:`, error);
+        return {};
+      }
+    }
+    
+    // Built-in node schemas
     const schemas: Record<string, any> = {
       'DataLoaderNode': {},
       'IndicatorNode': { type: 'dataframe' },
@@ -228,6 +275,19 @@ export class PipelineCompiler {
   }
   
   private getOutputSchema(nodeType: string): any {
+    // Check if it's a custom node first
+    if (isCustomNode(nodeType)) {
+      try {
+        const registry = getCustomNodeRegistry();
+        const customNode = registry.getNode(nodeType);
+        return customNode?.outputSchema || {};
+      } catch (error) {
+        console.warn(`Failed to get custom node registry output schema for ${nodeType}:`, error);
+        return {};
+      }
+    }
+    
+    // Built-in node schemas
     const schemas: Record<string, any> = {
       'DataLoaderNode': { type: 'dataframe' },
       'IndicatorNode': { type: 'dataframe' },
@@ -250,7 +310,7 @@ export class PipelineCompiler {
         runtime: this.determineRuntime(node.type),
         parameters: node.params || {},
         inputSchema: this.getInputSchema(node.type),
-        outputSchema: getNodeOutputSchema(node.type, node.params),
+        outputSchema: getNodeOutputSchemaEnhanced(node.type, node.params),
         metadata: {
           description: `${node.type} node processing pipeline data`,
           tags: [node.type, this.determineRuntime(node.type)]
@@ -313,6 +373,38 @@ export class PipelineCompiler {
     } catch (error) {
       return error instanceof Error && error.message.includes('Circular dependency');
     }
+  }
+  
+  private validateCustomNodeReferences(pipeline: PipelineDSL): { valid: boolean; errors: ValidationError[] } {
+    const errors: ValidationError[] = [];
+    const nodeTypes = pipeline.pipeline.map(node => node.type);
+    
+    // Get the custom node registry
+    let registry;
+    try {
+      registry = getCustomNodeRegistry();
+    } catch (error) {
+      console.warn(`Failed to get custom node registry for validation:`, error);
+      return {
+        valid: true,
+        errors: []
+      };
+    }
+    const validation = registry.validateNodeReferences(nodeTypes);
+    
+    if (!validation.valid) {
+      const availableNodes = registry ? registry.getNodeTypes() : [];
+      errors.push(...validation.missingNodes.map(nodeType => ({
+        type: 'semantic' as const,
+        message: `Custom node type '${nodeType}' not found. Available custom nodes: [${availableNodes.join(', ')}]`,
+        node: pipeline.pipeline.find(n => n.type === nodeType)?.id
+      })));
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
   }
 }
 

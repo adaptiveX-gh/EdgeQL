@@ -3,6 +3,7 @@ import { PipelineCompiler, CompiledPipeline } from '@edgeql/compiler';
 import { BuiltinNodeRunner } from './runners/BuiltinRunner.js';
 import { PythonSandboxRunner } from './runners/pythonSandboxRunner.js';
 import { NodejsSandboxRunner } from './runners/nodejsSandboxRunner.js';
+import { CustomNodeRunner } from './runners/CustomNodeRunner.js';
 import { 
   NodeRunner, 
   ExecutionContext, 
@@ -16,6 +17,7 @@ export class PipelineExecutor {
   
   constructor() {
     this.runners = [
+      new CustomNodeRunner(),       // Priority for custom JavaScript nodes
       new PythonSandboxRunner(),    // Priority for Python nodes
       new NodejsSandboxRunner(),    // Priority for Node.js nodes  
       new BuiltinNodeRunner()       // Fallback for simple built-in nodes
@@ -180,3 +182,4 @@ export * from './types.js';
 export { BuiltinNodeRunner } from './runners/BuiltinRunner.js';
 export { PythonSandboxRunner } from './runners/pythonSandboxRunner.js';
 export { NodejsSandboxRunner } from './runners/nodejsSandboxRunner.js';
+export { CustomNodeRunner } from './runners/CustomNodeRunner.js';

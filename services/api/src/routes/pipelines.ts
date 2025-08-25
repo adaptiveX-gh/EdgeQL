@@ -3,8 +3,8 @@ import type { Router as RouterType } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { PipelineExecutor } from '@edgeql/executor';
 import { PipelineCompiler } from '@edgeql/compiler';
-import { Pipeline, PipelineRun, ApiResponse } from '../types/index.js';
-import { PipelineStorage, RunStorage } from '../utils/storage.js';
+import { Pipeline, PipelineRun, PipelineVersion, ApiResponse, ObserverTokenResponse } from '../types/index.js';
+import { PipelineStorage, RunStorage, PipelineVersionStorage, ObserverStorage } from '../utils/storage.js';
 
 const router: RouterType = Router();
 
@@ -72,6 +72,38 @@ pipeline:
 // Initialize on startup
 initializeSampleData().catch(console.error);
 
+// Helper function to check observer mode
+async function checkObserverMode(req: any): Promise<{ isObserver: boolean; pipeline?: Pipeline }> {
+  const observerToken = req.query.observer as string;
+  
+  if (!observerToken) {
+    return { isObserver: false };
+  }
+  
+  const observerAccess = await ObserverStorage.validateToken(observerToken);
+  if (!observerAccess) {
+    throw new Error('Invalid observer token');
+  }
+  
+  // Record access
+  await ObserverStorage.recordAccess(observerToken);
+  
+  // Get pipeline
+  const pipeline = await PipelineStorage.get(observerAccess.pipelineId);
+  if (!pipeline) {
+    throw new Error('Pipeline not found');
+  }
+  
+  return { 
+    isObserver: true, 
+    pipeline: {
+      ...pipeline,
+      readOnly: true,
+      isObserverMode: true
+    }
+  };
+}
+
 // GET /api/pipelines - List all pipelines
 router.get('/', async (req, res) => {
   try {
@@ -92,6 +124,32 @@ router.get('/', async (req, res) => {
 // GET /api/pipelines/:id - Get specific pipeline
 router.get('/:id', async (req, res) => {
   try {
+    // Check observer mode first
+    try {
+      const observerCheck = await checkObserverMode(req);
+      if (observerCheck.isObserver && observerCheck.pipeline) {
+        // Verify the requested pipeline matches the observer token's pipeline
+        if (observerCheck.pipeline.id === req.params.id) {
+          const response: ApiResponse<Pipeline> = {
+            success: true,
+            data: observerCheck.pipeline
+          };
+          return res.json(response);
+        } else {
+          return res.status(403).json({
+            success: false,
+            error: 'Observer token not valid for this pipeline'
+          } as ApiResponse);
+        }
+      }
+    } catch (observerError) {
+      return res.status(401).json({
+        success: false,
+        error: (observerError as Error).message
+      } as ApiResponse);
+    }
+    
+    // Normal pipeline access
     const pipeline = await PipelineStorage.get(req.params.id);
     
     if (!pipeline) {
@@ -163,6 +221,20 @@ router.post('/:id/run', async (req, res) => {
   const { dsl } = req.body;
   
   try {
+    // Check if this is an observer mode request
+    try {
+      const observerCheck = await checkObserverMode(req);
+      if (observerCheck.isObserver) {
+        return res.status(403).json({
+          success: false,
+          error: 'Read-only access: Pipeline execution not allowed in observer mode'
+        } as ApiResponse);
+      }
+    } catch (observerError) {
+      // If observer token is invalid, proceed with normal validation
+      // This allows non-observer requests to continue
+    }
+    
     const pipeline = await PipelineStorage.get(pipelineId);
     if (!pipeline) {
       return res.status(404).json({
@@ -344,6 +416,383 @@ router.post('/:id/compile', async (req, res) => {
       success: false,
       error: 'Failed to compile pipeline',
       details: error instanceof Error ? error.message : 'Unknown error'
+    } as ApiResponse);
+  }
+});
+
+// Version management routes
+
+// GET /api/pipelines/:id/versions - Get all versions for a pipeline
+router.get('/:id/versions', async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const pipeline = await PipelineStorage.get(pipelineId);
+    
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const versions = await PipelineVersionStorage.getByPipeline(pipelineId);
+    
+    const response: ApiResponse<PipelineVersion[]> = {
+      success: true,
+      data: versions
+    };
+    return res.json(response);
+  } catch (error) {
+    console.error('Failed to retrieve pipeline versions:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve pipeline versions'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/:id/versions - Create a new version
+router.post('/:id/versions', async (req, res) => {
+  try {
+    const pipelineId = req.params.id;
+    const { dsl, commitMessage, isAutoSave = false, tags = [], createdBy } = req.body;
+    
+    if (!dsl || typeof dsl !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'DSL content is required'
+      } as ApiResponse);
+    }
+    
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    // Create new version
+    const newVersion = await PipelineVersionStorage.createVersion(pipelineId, dsl, {
+      commitMessage,
+      isAutoSave,
+      tags,
+      createdBy
+    });
+    
+    // Update pipeline's current version and DSL
+    pipeline.dsl = dsl;
+    pipeline.currentVersion = newVersion.version;
+    pipeline.updatedAt = new Date().toISOString();
+    await PipelineStorage.set(pipeline);
+    
+    const response: ApiResponse<PipelineVersion> = {
+      success: true,
+      data: newVersion,
+      message: 'Version created successfully'
+    };
+    return res.json(response);
+    
+  } catch (error) {
+    console.error('Failed to create pipeline version:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create pipeline version'
+    } as ApiResponse);
+  }
+});
+
+// GET /api/pipelines/:id/versions/:versionId - Get specific version
+router.get('/:id/versions/:versionId', async (req, res) => {
+  try {
+    const { id: pipelineId, versionId } = req.params;
+    
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const version = await PipelineVersionStorage.get(versionId);
+    if (!version || version.pipelineId !== pipelineId) {
+      return res.status(404).json({
+        success: false,
+        error: 'Version not found'
+      } as ApiResponse);
+    }
+    
+    const response: ApiResponse<PipelineVersion> = {
+      success: true,
+      data: version
+    };
+    return res.json(response);
+    
+  } catch (error) {
+    console.error('Failed to retrieve pipeline version:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve pipeline version'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/:id/versions/:versionId/restore - Restore a version
+router.post('/:id/versions/:versionId/restore', async (req, res) => {
+  try {
+    const { id: pipelineId, versionId } = req.params;
+    const { createBackup = true, commitMessage } = req.body;
+    
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const versionToRestore = await PipelineVersionStorage.get(versionId);
+    if (!versionToRestore || versionToRestore.pipelineId !== pipelineId) {
+      return res.status(404).json({
+        success: false,
+        error: 'Version not found'
+      } as ApiResponse);
+    }
+    
+    // Create backup of current state if requested
+    let backupVersion: PipelineVersion | null = null;
+    if (createBackup && pipeline.dsl !== versionToRestore.dsl) {
+      backupVersion = await PipelineVersionStorage.createVersion(pipelineId, pipeline.dsl, {
+        commitMessage: `Backup before restoring to v${versionToRestore.version}`,
+        isAutoSave: true
+      });
+    }
+    
+    // Create new version with restored content
+    const restoredVersion = await PipelineVersionStorage.createVersion(pipelineId, versionToRestore.dsl, {
+      commitMessage: commitMessage || `Restored from v${versionToRestore.version}`,
+      isAutoSave: false,
+      tags: ['restored']
+    });
+    
+    // Update pipeline
+    pipeline.dsl = versionToRestore.dsl;
+    pipeline.currentVersion = restoredVersion.version;
+    pipeline.updatedAt = new Date().toISOString();
+    await PipelineStorage.set(pipeline);
+    
+    const response: ApiResponse<{ 
+      restoredVersion: PipelineVersion; 
+      backupVersion?: PipelineVersion;
+    }> = {
+      success: true,
+      data: { 
+        restoredVersion,
+        ...(backupVersion && { backupVersion })
+      },
+      message: `Successfully restored to version ${versionToRestore.version}`
+    };
+    return res.json(response);
+    
+  } catch (error) {
+    console.error('Failed to restore pipeline version:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to restore pipeline version'
+    } as ApiResponse);
+  }
+});
+
+// DELETE /api/pipelines/:id/versions/:versionId - Delete a version
+router.delete('/:id/versions/:versionId', async (req, res) => {
+  try {
+    const { id: pipelineId, versionId } = req.params;
+    
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    const version = await PipelineVersionStorage.get(versionId);
+    if (!version || version.pipelineId !== pipelineId) {
+      return res.status(404).json({
+        success: false,
+        error: 'Version not found'
+      } as ApiResponse);
+    }
+    
+    // Don't allow deletion of the current version
+    if (pipeline.currentVersion === version.version) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete the current version'
+      } as ApiResponse);
+    }
+    
+    const deleted = await PipelineVersionStorage.delete(versionId);
+    
+    const response: ApiResponse<{ deleted: boolean }> = {
+      success: true,
+      data: { deleted },
+      message: deleted ? 'Version deleted successfully' : 'Version not found'
+    };
+    return res.json(response);
+    
+  } catch (error) {
+    console.error('Failed to delete pipeline version:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete pipeline version'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/:id/duplicate - Duplicate a pipeline
+router.post('/:id/duplicate', async (req, res) => {
+  try {
+    const originalPipeline = await PipelineStorage.get(req.params.id);
+    if (!originalPipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+
+    // Create duplicate with new ID and name
+    const duplicateId = uuidv4();
+    const duplicatePipeline: Pipeline = {
+      ...originalPipeline,
+      id: duplicateId,
+      name: `${originalPipeline.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      currentVersion: undefined, // Reset version counter for new pipeline
+      // Remove observer-specific fields for clean copy
+      observerTokens: undefined,
+      readOnly: undefined,
+      isObserverMode: undefined
+    };
+
+    await PipelineStorage.set(duplicatePipeline);
+
+    const response: ApiResponse<Pipeline> = {
+      success: true,
+      data: duplicatePipeline,
+      message: 'Pipeline duplicated successfully'
+    };
+    return res.json(response);
+
+  } catch (error) {
+    console.error('Pipeline duplication error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to duplicate pipeline'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/:id/observer - Generate observer token
+router.post('/:id/observer', async (req, res) => {
+  try {
+    const pipeline = await PipelineStorage.get(req.params.id);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+
+    const observerToken = await ObserverStorage.generateObserverToken(req.params.id);
+    
+    // Construct observer URL (could be configurable via environment)
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const observerUrl = `${baseUrl}/pipeline/${req.params.id}?observer=${observerToken}`;
+
+    const response: ApiResponse<ObserverTokenResponse> = {
+      success: true,
+      data: {
+        observerToken,
+        observerUrl
+      },
+      message: 'Observer token generated successfully'
+    };
+    return res.json(response);
+
+  } catch (error) {
+    console.error('Observer token generation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to generate observer token'
+    } as ApiResponse);
+  }
+});
+
+// GET /api/pipelines/:id/observers - Get observer access records for pipeline
+router.get('/:id/observers', async (req, res) => {
+  try {
+    const pipeline = await PipelineStorage.get(req.params.id);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+
+    const observers = await ObserverStorage.getByPipeline(req.params.id);
+    
+    // Remove sensitive token data from response
+    const safeObservers = observers.map(obs => ({
+      id: obs.id,
+      createdAt: obs.createdAt,
+      lastAccessedAt: obs.lastAccessedAt,
+      accessCount: obs.accessCount,
+      expiresAt: obs.expiresAt
+    }));
+
+    const response: ApiResponse<any[]> = {
+      success: true,
+      data: safeObservers
+    };
+    return res.json(response);
+
+  } catch (error) {
+    console.error('Failed to get observers:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve observer records'
+    } as ApiResponse);
+  }
+});
+
+// DELETE /api/pipelines/:id/observers/:token - Revoke observer token
+router.delete('/:id/observers/:token', async (req, res) => {
+  try {
+    const pipeline = await PipelineStorage.get(req.params.id);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+
+    const revoked = await ObserverStorage.revokeToken(req.params.token);
+
+    const response: ApiResponse<{ revoked: boolean }> = {
+      success: true,
+      data: { revoked },
+      message: revoked ? 'Observer token revoked successfully' : 'Token not found'
+    };
+    return res.json(response);
+
+  } catch (error) {
+    console.error('Failed to revoke observer token:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to revoke observer token'
     } as ApiResponse);
   }
 });

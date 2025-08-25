@@ -1,11 +1,35 @@
 export interface Pipeline {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   dsl: string;
-  status: 'ready' | 'draft' | 'archived';
+  status: 'ready' | 'invalid' | 'running';
   createdAt: string;
   updatedAt: string;
+  userId?: string;
+  currentVersion?: number;
+}
+
+export interface PipelineVersion {
+  id: string;
+  pipelineId: string;
+  version: number;
+  name?: string;
+  description?: string;
+  dsl: string;
+  commitMessage?: string;
+  createdAt: string;
+  createdBy?: string;
+  isAutoSave: boolean;
+  tags?: string[];
+}
+
+export interface LogEntry {
+  timestamp: string;
+  nodeId: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  source: 'system' | 'node';
 }
 
 export interface PipelineRun {
@@ -14,7 +38,8 @@ export interface PipelineRun {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   startTime: string;
   endTime?: string;
-  logs: string[];
+  logs: string[]; // Legacy string logs for backward compatibility
+  structuredLogs?: LogEntry[]; // New structured logs with node identification
   error?: string;
   results?: BacktestResults;
 }
@@ -31,20 +56,16 @@ export interface BacktestResults {
 }
 
 export interface Trade {
-  id: string;
   timestamp: string;
-  symbol: string;
   side: 'buy' | 'sell';
-  quantity: number;
+  size: number;
   price: number;
-  commission: number;
   pnl?: number;
 }
 
 export interface EquityPoint {
   timestamp: string;
   equity: number;
-  drawdown: number;
 }
 
 export interface ApiResponse<T = any> {
@@ -99,4 +120,27 @@ export interface IRDependency {
   to: string;
   type: 'data' | 'control';
   dataType?: string;
+}
+
+export interface CustomNode {
+  id: string;
+  name: string;
+  type: string;
+  language: 'javascript' | 'python' | 'wasm';
+  code: string;
+  description?: string;
+  inputSchema?: any;
+  outputSchema?: any;
+  createdAt: string;
+  updatedAt: string;
+  userId?: string;
+}
+
+export interface NodeTemplate {
+  name: string;
+  description: string;
+  code: string;
+  language: 'javascript' | 'python';
+  inputSchema?: any;
+  outputSchema?: any;
 }

@@ -3,8 +3,11 @@
   import MonacoEditor from '../../../lib/monaco/MonacoEditor.svelte';
   import ErrorPanel from '../../../lib/monaco/ErrorPanel.svelte';
   import DatasetPicker from '../../../lib/components/DatasetPicker.svelte';
+  import VersionHistory from '../../../lib/components/VersionHistory.svelte';
+  import DiffViewer from '../../../lib/components/DiffViewer.svelte';
   import { pipelineApi, runApi, RunPoller, ApiError } from '../../../lib/api/client.js';
-  import type { Pipeline, PipelineRun, PipelineIR, Dataset } from '../../../lib/api/types.js';
+  import { AutoSave, isSignificantChange, defaultAutoSaveOptions } from '../../../lib/utils/autosave.js';
+  import type { Pipeline, PipelineRun, PipelineVersion, PipelineIR, Dataset } from '../../../lib/api/types.js';
   
   export let pipelineId;
   
@@ -35,6 +38,19 @@
   let compiledIR: PipelineIR | null = null;
   let compilationError: string | null = null;
   let isCompiling = false;
+
+  // Version management state
+  let showVersionHistory = false;
+  let showDiffViewer = false;
+  let versions: PipelineVersion[] = [];
+  let versionsLoading = false;
+  let diffVersionA: PipelineVersion | null = null;
+  let diffVersionB: PipelineVersion | null = null;
+  let autoSave: AutoSave | null = null;
+  let lastSavedContent = '';
+  let hasUnsavedChanges = false;
+  let saveStatus = '';
+  let manualSaving = false;
   
   onMount(async () => {
     // Skip loading if pipelineId is missing
@@ -47,6 +63,25 @@
     try {
       pipeline = await pipelineApi.get(pipelineId);
       dslContent = pipeline.dsl;
+      lastSavedContent = pipeline.dsl;
+      
+      // Initialize auto-save
+      autoSave = new AutoSave(pipelineId, {
+        ...defaultAutoSaveOptions,
+        onSave: (version) => {
+          console.log('Auto-saved version:', version.version);
+          saveStatus = `Auto-saved v${version.version}`;
+          setTimeout(() => {
+            if (saveStatus.startsWith('Auto-saved')) {
+              saveStatus = '';
+            }
+          }, 3000);
+        },
+        onError: (error) => {
+          console.error('Auto-save error:', error);
+          saveStatus = `Auto-save failed: ${error.message}`;
+        }
+      });
     } catch (err) {
       console.error('Failed to load pipeline:', err);
       if (err instanceof ApiError && err.status === 404) {
@@ -63,10 +98,23 @@
     if (runPoller) {
       runPoller.destroy();
     }
+    if (autoSave) {
+      autoSave.destroy();
+    }
   });
 
   const handleDslChange = (event: CustomEvent<{ value: string }>) => {
-    dslContent = event.detail.value;
+    const newContent = event.detail.value;
+    dslContent = newContent;
+    
+    // Check if content has changed
+    hasUnsavedChanges = newContent !== lastSavedContent;
+    
+    // Schedule auto-save if enabled
+    if (autoSave && hasUnsavedChanges) {
+      const isSignificant = isSignificantChange(lastSavedContent, newContent);
+      autoSave.schedule(newContent, isSignificant);
+    }
   };
 
   const handleMonacoReady = (event: CustomEvent<{ editor: any }>) => {
@@ -222,6 +270,123 @@
       isCompiling = false;
     }
   };
+
+  // Version management functions
+  const loadVersionHistory = async () => {
+    if (!pipeline) return;
+    
+    versionsLoading = true;
+    try {
+      versions = await pipelineApi.getVersions(pipelineId);
+    } catch (err) {
+      console.error('Failed to load version history:', err);
+      versions = [];
+    } finally {
+      versionsLoading = false;
+    }
+  };
+
+  const handleShowVersionHistory = async () => {
+    await loadVersionHistory();
+    showVersionHistory = true;
+  };
+
+  const handleVersionRestore = async (event: CustomEvent<{ version: PipelineVersion }>) => {
+    const { version } = event.detail;
+    
+    try {
+      manualSaving = true;
+      const result = await pipelineApi.restoreVersion(pipelineId, version.id, {
+        createBackup: true,
+        commitMessage: `Restored from v${version.version}`
+      });
+      
+      // Update the editor content
+      dslContent = version.dsl;
+      lastSavedContent = version.dsl;
+      hasUnsavedChanges = false;
+      
+      // Update pipeline state
+      if (pipeline) {
+        pipeline.dsl = version.dsl;
+        pipeline.currentVersion = result.restoredVersion.version;
+        pipeline.updatedAt = result.restoredVersion.createdAt;
+      }
+      
+      saveStatus = `Restored to v${version.version}`;
+      setTimeout(() => saveStatus = '', 3000);
+      
+      // Refresh version history
+      await loadVersionHistory();
+      
+    } catch (err) {
+      console.error('Failed to restore version:', err);
+      saveStatus = `Restore failed: ${err instanceof ApiError ? err.message : 'Unknown error'}`;
+    } finally {
+      manualSaving = false;
+    }
+  };
+
+  const handleVersionCompare = (event: CustomEvent<{ versionA: PipelineVersion; versionB: PipelineVersion }>) => {
+    diffVersionA = event.detail.versionA;
+    diffVersionB = event.detail.versionB;
+    showDiffViewer = true;
+    showVersionHistory = false;
+  };
+
+  const handleVersionDelete = async (event: CustomEvent<{ version: PipelineVersion }>) => {
+    const { version } = event.detail;
+    
+    try {
+      await pipelineApi.deleteVersion(pipelineId, version.id);
+      
+      // Refresh version history
+      await loadVersionHistory();
+      
+      saveStatus = `Deleted v${version.version}`;
+      setTimeout(() => saveStatus = '', 3000);
+      
+    } catch (err) {
+      console.error('Failed to delete version:', err);
+      saveStatus = `Delete failed: ${err instanceof ApiError ? err.message : 'Unknown error'}`;
+    }
+  };
+
+  const handleSaveVersion = async (commitMessage?: string) => {
+    if (!pipeline || !hasUnsavedChanges) return;
+    
+    try {
+      manualSaving = true;
+      
+      const version = await pipelineApi.createVersion(pipelineId, {
+        dsl: dslContent,
+        commitMessage: commitMessage || `Manual save v${(pipeline.currentVersion || 0) + 1}`,
+        isAutoSave: false
+      });
+      
+      lastSavedContent = dslContent;
+      hasUnsavedChanges = false;
+      
+      if (pipeline) {
+        pipeline.currentVersion = version.version;
+        pipeline.updatedAt = version.createdAt;
+      }
+      
+      saveStatus = `Saved as v${version.version}`;
+      setTimeout(() => saveStatus = '', 3000);
+      
+    } catch (err) {
+      console.error('Failed to save version:', err);
+      saveStatus = `Save failed: ${err instanceof ApiError ? err.message : 'Unknown error'}`;
+    } finally {
+      manualSaving = false;
+    }
+  };
+
+  const handleDiffRestore = async (event: CustomEvent<{ version: PipelineVersion }>) => {
+    showDiffViewer = false;
+    await handleVersionRestore(event);
+  };
 </script>
 
 <svelte:head>
@@ -251,12 +416,36 @@
         <p class="text-base-content/70 mt-1">{pipeline.description}</p>
       </div>
       
-      <div class="flex gap-3">
-        <button class="btn btn-secondary" disabled>
+      <div class="flex gap-3 items-center">
+        <!-- Save status -->
+        {#if saveStatus}
+          <div class="badge badge-info badge-sm">{saveStatus}</div>
+        {/if}
+        
+        <!-- Version history button -->
+        <button 
+          class="btn btn-ghost btn-sm"
+          on:click={handleShowVersionHistory}
+          title="View version history"
+        >
+          <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          History
+        </button>
+        
+        <!-- Save button -->
+        <button 
+          class="btn btn-secondary" 
+          class:loading={manualSaving}
+          disabled={!hasUnsavedChanges || manualSaving}
+          on:click={() => handleSaveVersion()}
+          title={hasUnsavedChanges ? 'Save current changes as new version' : 'No changes to save'}
+        >
           <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12"></path>
           </svg>
-          Save
+          {manualSaving ? 'Saving...' : hasUnsavedChanges ? 'Save *' : 'Saved'}
         </button>
         
         {#if isRunning}
@@ -571,3 +760,31 @@
     </div>
   {/if}
 </div>
+
+<!-- Version History Modal -->
+{#if showVersionHistory}
+  <VersionHistory
+    {pipelineId}
+    {versions}
+    loading={versionsLoading}
+    currentVersion={pipeline?.currentVersion}
+    on:restore={handleVersionRestore}
+    on:compare={handleVersionCompare}
+    on:delete={handleVersionDelete}
+    on:close={() => showVersionHistory = false}
+  />
+{/if}
+
+<!-- Diff Viewer Modal -->
+{#if showDiffViewer && diffVersionA && diffVersionB}
+  <DiffViewer
+    versionA={diffVersionA}
+    versionB={diffVersionB}
+    on:restore={handleDiffRestore}
+    on:close={() => {
+      showDiffViewer = false;
+      diffVersionA = null;
+      diffVersionB = null;
+    }}
+  />
+{/if}

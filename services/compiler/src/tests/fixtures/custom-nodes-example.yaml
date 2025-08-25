@@ -1,0 +1,59 @@
+# Custom Nodes Integration Example
+# This pipeline demonstrates the use of custom JavaScript nodes alongside built-in nodes
+
+pipeline:
+  # Load historical price data (built-in node)
+  - id: price_data
+    type: DataLoaderNode
+    params:
+      symbol: "BTC/USD"
+      timeframe: "1h"
+      dataset: "BTC_1m_hyperliquid_perpetualx.csv"
+      start_date: "2023-01-01"
+      end_date: "2023-12-31"
+
+  # Calculate moving average (built-in node)
+  - id: sma_20
+    type: IndicatorNode
+    depends_on: [price_data]
+    params:
+      indicator: "SMA"
+      period: 20
+      column: "close"
+
+  # Filter data using custom FilterNode
+  - id: filtered_data
+    type: FilterNode
+    depends_on: [sma_20]
+    params:
+      column: "close"
+      condition: ">100"
+      operator: "greater_than"
+      sort_by: "timestamp"
+
+  # Aggregate filtered data using custom AggregationNode
+  - id: price_stats
+    type: AggregationNode
+    depends_on: [filtered_data]
+    params:
+      operation: "mean"
+      columns: ["close", "volume", "sma_20"]
+      window_size: 50
+
+  # Generate signals from original data (built-in node)
+  - id: crossover_signals
+    type: CrossoverSignalNode
+    depends_on: [sma_20, price_data]
+    params:
+      fast_period: 20
+      slow_period: 50
+      signal_column: "signal"
+
+  # Run backtest with aggregated stats and signals
+  - id: backtest_results
+    type: BacktestNode
+    depends_on: [crossover_signals, price_stats]
+    params:
+      initial_capital: 10000
+      commission: 0.001
+      slippage: 0.0005

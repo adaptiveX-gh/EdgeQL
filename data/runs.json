@@ -1,0 +1,22 @@
+[
+  {
+    "id": "bfe41f68-3d32-4dbc-accd-cbff69200ad7",
+    "pipelineId": "sample-ma-crossover",
+    "status": "running",
+    "startTime": "2025-08-25T03:02:00.759Z",
+    "logs": [
+      "Starting pipeline execution for sample-ma-crossover",
+      "Compiling DSL and validating pipeline structure..."
+    ]
+  },
+  {
+    "id": "b753aa38-15a4-4213-9fdf-48f52c941a05",
+    "pipelineId": "sample-ma-crossover",
+    "status": "running",
+    "startTime": "2025-08-25T03:03:01.804Z",
+    "logs": [
+      "Starting pipeline execution for sample-ma-crossover",
+      "Compiling DSL and validating pipeline structure..."
+    ]
+  }
+]

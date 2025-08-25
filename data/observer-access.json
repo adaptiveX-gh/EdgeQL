@@ -1,0 +1,48 @@
+[
+  {
+    "id": "a10b7eb7-52dd-4fa9-97e8-d1326d3961f2",
+    "pipelineId": "sample-ma-crossover",
+    "token": "d29b4daa-9068-4ef8-b105-df438780ee94-347a3cb6-a704-456a-a87b-46348fa0be31",
+    "createdAt": "2025-08-25T03:02:00.810Z",
+    "accessCount": 0
+  },
+  {
+    "id": "1dc28bd1-668d-4507-9bdd-1460dc595c2a",
+    "pipelineId": "sample-ma-crossover",
+    "token": "76c96da5-71dc-4434-a33e-1c05eec10d5c-f48874dd-c621-4a8a-b03f-e3a8c85cf111",
+    "createdAt": "2025-08-25T03:02:00.816Z",
+    "accessCount": 1,
+    "lastAccessedAt": "2025-08-25T03:02:00.820Z"
+  },
+  {
+    "id": "f8cc8d4e-4b37-4380-b49a-ab1b0a10185f",
+    "pipelineId": "sample-ma-crossover",
+    "token": "f639cf3d-d8e9-4de0-98a5-c6bdfc18b33d-e5634536-595d-48e0-b62b-0b5355c36ce0",
+    "createdAt": "2025-08-25T03:02:00.829Z",
+    "accessCount": 1,
+    "lastAccessedAt": "2025-08-25T03:02:00.834Z"
+  },
+  {
+    "id": "49b41006-ed86-451f-a59e-68817a976dcc",
+    "pipelineId": "sample-ma-crossover",
+    "token": "60216177-a9ab-4906-8593-c2e5d922abfe-063afcfc-b9c1-4223-816c-45750f28b4ed",
+    "createdAt": "2025-08-25T03:03:01.876Z",
+    "accessCount": 0
+  },
+  {
+    "id": "812d3bfe-7c4a-4dcd-8647-940ef984c4b7",
+    "pipelineId": "sample-ma-crossover",
+    "token": "d647a11e-81db-4084-89cf-fd4e451f6d12-ba67254e-df1c-4a4b-9160-a42791ddcfb6",
+    "createdAt": "2025-08-25T03:03:01.887Z",
+    "accessCount": 1,
+    "lastAccessedAt": "2025-08-25T03:03:01.893Z"
+  },
+  {
+    "id": "7344e508-6a27-4794-8901-cfcf9cd64feb",
+    "pipelineId": "sample-ma-crossover",
+    "token": "3add8150-fe99-4bc4-9bec-176a43103d20-ce5a7f57-8f19-46ba-9247-b930713e779f",
+    "createdAt": "2025-08-25T03:03:01.909Z",
+    "accessCount": 1,
+    "lastAccessedAt": "2025-08-25T03:03:01.913Z"
+  }
+]

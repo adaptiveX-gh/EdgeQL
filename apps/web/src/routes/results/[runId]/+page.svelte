@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { runApi, pipelineApi, ApiError } from '$lib/api/client.js';
-  import type { PipelineRun, Pipeline } from '$lib/api/types.js';
+  import type { PipelineRun, Pipeline, LogEntry } from '$lib/api/types.js';
   import EquityCurveChart from '$lib/charts/EquityCurveChart.svelte';
   
   let runId = $page.params.runId;
@@ -13,6 +13,14 @@
   let showToast = false;
   let toastMessage = '';
   let cancelling = false;
+  
+  // Structured logs state
+  let structuredLogs: LogEntry[] = [];
+  let showStructuredLogs = false;
+  let selectedLogLevel: string = 'all';
+  let selectedLogSource: string = 'all';
+  let selectedNodeId: string = 'all';
+  let availableNodeIds: string[] = [];
   
   // Check if this is a shared/read-only view
   $: isSharedView = $page.url.searchParams.has('share');
@@ -90,6 +98,46 @@
     URL.revokeObjectURL(url);
   };
 
+  const downloadTrades = async () => {
+    if (!run) return;
+    
+    try {
+      await runApi.downloadTrades(run.id);
+      showToast = true;
+      toastMessage = 'Trade history exported successfully!';
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    } catch (error) {
+      console.error('Failed to export trades:', error);
+      showToast = true;
+      toastMessage = 'Failed to export trades. Please try again.';
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    }
+  };
+
+  const downloadMetrics = async () => {
+    if (!run) return;
+    
+    try {
+      await runApi.downloadMetrics(run.id);
+      showToast = true;
+      toastMessage = 'Metrics exported successfully!';
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    } catch (error) {
+      console.error('Failed to export metrics:', error);
+      showToast = true;
+      toastMessage = 'Failed to export metrics. Please try again.';
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    }
+  };
+
   const cancelRun = async () => {
     if (!run) return;
     
@@ -119,6 +167,51 @@
     } finally {
       cancelling = false;
     }
+  };
+
+  const loadStructuredLogs = async () => {
+    if (!run) return;
+    
+    try {
+      const options: any = {};
+      if (selectedLogLevel !== 'all') options.level = selectedLogLevel;
+      if (selectedLogSource !== 'all') options.source = selectedLogSource;
+      if (selectedNodeId !== 'all') options.nodeId = selectedNodeId;
+      
+      const response = await runApi.getStructuredLogs(run.id, options);
+      structuredLogs = response.logs;
+    } catch (err) {
+      console.error('Failed to load structured logs:', err);
+    }
+  };
+
+  const extractAvailableNodeIds = (logs: LogEntry[]) => {
+    const nodeIds = new Set(logs.map(log => log.nodeId));
+    return Array.from(nodeIds).sort();
+  };
+
+  const formatLogLevel = (level: string) => {
+    const colors: Record<string, string> = {
+      info: 'text-info',
+      warn: 'text-warning',
+      error: 'text-error',
+      debug: 'text-gray-500'
+    };
+    return colors[level] || 'text-gray-700';
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    return new Date(timestamp).toLocaleTimeString();
+  };
+
+  // Load structured logs when run is loaded or filters change
+  $: if (run && showStructuredLogs) {
+    loadStructuredLogs();
+  }
+
+  // Extract available node IDs when run changes
+  $: if (run?.structuredLogs) {
+    availableNodeIds = extractAvailableNodeIds(run.structuredLogs);
   };
 </script>
 
@@ -205,12 +298,46 @@
         {/if}
         
         {#if run.results}
-          <button class="btn btn-primary btn-sm" on:click={downloadResults}>
-            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 6h8"></path>
-            </svg>
-            Download Results
-          </button>
+          <!-- Export dropdown -->
+          <div class="dropdown dropdown-end">
+            <label tabindex="0" class="btn btn-primary btn-sm">
+              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 6h8"></path>
+              </svg>
+              Export
+              <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+              </svg>
+            </label>
+            <ul tabindex="0" class="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 z-50">
+              <li>
+                <button on:click={downloadResults} class="text-left">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                  All Results (JSON)
+                </button>
+              </li>
+              {#if run.results.trades && run.results.trades.length > 0}
+                <li>
+                  <button on:click={downloadTrades} class="text-left">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Trade History (CSV)
+                  </button>
+                </li>
+              {/if}
+              <li>
+                <button on:click={downloadMetrics} class="text-left">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  Performance Metrics (JSON)
+                </button>
+              </li>
+            </ul>
+          </div>
         {/if}
         
         {#if pipeline && !isSharedView}
@@ -359,12 +486,100 @@
     {#if run.logs && run.logs.length > 0}
       <div class="card bg-base-100 shadow-lg mb-8">
         <div class="card-body">
-          <h3 class="card-title">Execution Logs</h3>
-          <div class="bg-base-300 rounded p-4 max-h-64 overflow-y-auto">
-            {#each run.logs as log}
-              <div class="text-sm font-mono py-1">{log}</div>
-            {/each}
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="card-title">Execution Logs</h3>
+            <div class="flex gap-2">
+              {#if run.structuredLogs && run.structuredLogs.length > 0}
+                <button 
+                  class="btn btn-sm btn-outline"
+                  class:btn-active={showStructuredLogs}
+                  on:click={() => showStructuredLogs = !showStructuredLogs}
+                >
+                  {showStructuredLogs ? 'Show Legacy' : 'Show Structured'}
+                </button>
+              {/if}
+            </div>
           </div>
+          
+          {#if showStructuredLogs && run.structuredLogs}
+            <!-- Structured Logs View -->
+            <div class="space-y-4">
+              <!-- Filters -->
+              <div class="flex flex-wrap gap-4">
+                <div class="form-control">
+                  <label class="label">
+                    <span class="label-text">Node</span>
+                  </label>
+                  <select class="select select-sm select-bordered" bind:value={selectedNodeId} on:change={loadStructuredLogs}>
+                    <option value="all">All Nodes</option>
+                    {#each availableNodeIds as nodeId}
+                      <option value={nodeId}>{nodeId}</option>
+                    {/each}
+                  </select>
+                </div>
+                
+                <div class="form-control">
+                  <label class="label">
+                    <span class="label-text">Level</span>
+                  </label>
+                  <select class="select select-sm select-bordered" bind:value={selectedLogLevel} on:change={loadStructuredLogs}>
+                    <option value="all">All Levels</option>
+                    <option value="debug">Debug</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warning</option>
+                    <option value="error">Error</option>
+                  </select>
+                </div>
+                
+                <div class="form-control">
+                  <label class="label">
+                    <span class="label-text">Source</span>
+                  </label>
+                  <select class="select select-sm select-bordered" bind:value={selectedLogSource} on:change={loadStructuredLogs}>
+                    <option value="all">All Sources</option>
+                    <option value="system">System</option>
+                    <option value="node">Node</option>
+                  </select>
+                </div>
+              </div>
+              
+              <!-- Structured Log Entries -->
+              <div class="bg-base-300 rounded p-4 max-h-96 overflow-y-auto">
+                {#if structuredLogs.length === 0}
+                  <div class="text-center py-8 text-base-content/50">
+                    No logs match the current filters
+                  </div>
+                {:else}
+                  {#each structuredLogs as log}
+                    <div class="flex items-start gap-4 py-2 border-b border-base-content/10 last:border-b-0">
+                      <div class="text-xs text-base-content/70 min-w-[80px] font-mono">
+                        {formatTimestamp(log.timestamp)}
+                      </div>
+                      <div class="min-w-[60px]">
+                        <span class="badge badge-xs {formatLogLevel(log.level)}">
+                          {log.level.toUpperCase()}
+                        </span>
+                      </div>
+                      <div class="min-w-[120px] text-xs text-base-content/70">
+                        <span class="badge badge-outline badge-xs">{log.nodeId}</span>
+                        <span class="ml-1 text-xs">({log.source})</span>
+                      </div>
+                      <div class="flex-1 text-sm font-mono">
+                        {log.message}
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          {:else}
+            <!-- Legacy Logs View -->
+            <div class="bg-base-300 rounded p-4 max-h-64 overflow-y-auto">
+              {#each run.logs as log}
+                <div class="text-sm font-mono py-1">{log}</div>
+              {/each}
+            </div>
+          {/if}
         </div>
       </div>
     {/if}

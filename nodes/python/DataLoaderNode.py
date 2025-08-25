@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+# Import our logging utility
+from node_logger import NodeLoggerContext
+
 
 class DataLoaderParams(BaseModel):
     """Parameters for the DataLoader node"""
@@ -170,27 +173,38 @@ class DataLoaderNode:
 
 def main():
     """Entry point when run as standalone script"""
-    if len(sys.argv) != 3:
-        print("Usage: python DataLoaderNode.py <input_json> <output_json>")
+    if len(sys.argv) not in [3, 4]:
+        print("Usage: python DataLoaderNode.py <input_json> <output_json> [logs_json]")
         sys.exit(1)
 
     input_file = sys.argv[1]
     output_file = sys.argv[2]
+    logs_file = sys.argv[3] if len(sys.argv) > 3 else None
 
     try:
         # Read parameters from input JSON
         with open(input_file, "r") as f:
             config = json.load(f)
 
-        # Create and run the node
-        node = DataLoaderNode(config.get("params", {}))
-        result = node.run()
+        # Use the logger context manager to capture logs
+        with NodeLoggerContext(config) as logger:
+            print("Starting DataLoaderNode execution")
+            logger.info("DataLoaderNode initialized")
+
+            # Create and run the node
+            node = DataLoaderNode(config.get("params", {}))
+            result = node.run()
+
+            logger.info("DataLoaderNode processing completed")
+            print("DataLoaderNode completed successfully")
+
+            # Save structured logs if logs file is provided
+            if logs_file:
+                logger.save_logs_to_file(logs_file)
 
         # Write result to output JSON
         with open(output_file, "w") as f:
             json.dump(result, f, indent=2, default=str)
-
-        print(f"DataLoaderNode completed successfully")
 
     except Exception as e:
         error_result = {"error": str(e), "type": "execution_error"}

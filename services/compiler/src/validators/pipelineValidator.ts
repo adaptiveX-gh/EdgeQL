@@ -4,7 +4,8 @@ import {
   validateNodeParameters,
   getParameterSchema 
 } from '../schemas/dslSchema.js';
-import { validatePipelineDataFlow } from '../schemas/nodeSchemas.js';
+import { validatePipelineDataFlow, validatePipelineDataFlowEnhanced, isCustomNode } from '../schemas/nodeSchemas.js';
+import { getCustomNodeRegistry } from '../registry/CustomNodeRegistry.js';
 
 export class PipelineValidator {
   private nodeDefinitions: Map<string, NodeDefinition>;
@@ -107,9 +108,9 @@ export class PipelineValidator {
       });
     }
     
-    // Validate input/output data flow compatibility
+    // Validate input/output data flow compatibility (enhanced version supports custom nodes)
     if (errors.length === 0) { // Only validate data flow if other validations pass
-      const dataFlowValidation = validatePipelineDataFlow(pipeline.pipeline);
+      const dataFlowValidation = validatePipelineDataFlowEnhanced(pipeline.pipeline);
       if (!dataFlowValidation.valid) {
         dataFlowValidation.errors.forEach(error => {
           errors.push({
@@ -126,9 +127,11 @@ export class PipelineValidator {
   private validateNode(node: any, allNodeIds: Set<string>): ValidationError[] {
     const errors: ValidationError[] = [];
     
-    // Check if node type exists
+    // Check if node type exists (built-in or custom)
     const nodeDefinition = this.nodeDefinitions.get(node.type);
-    if (!nodeDefinition) {
+    const isCustomNodeType = isCustomNode(node.type);
+    
+    if (!nodeDefinition && !isCustomNodeType) {
       errors.push({
         type: 'semantic',
         message: `Unknown node type: ${node.type}`,
@@ -150,31 +153,36 @@ export class PipelineValidator {
       }
     }
     
-    // Use Zod schema validation for parameters if available
-    const paramValidation = validateNodeParameters(node.type, node.params);
-    if (!paramValidation.success) {
-      paramValidation.errors.forEach(error => {
-        errors.push({
-          type: 'semantic',
-          message: `Parameter validation error: ${error}`,
-          node: node.id
-        });
-      });
-    } else {
-      // Fallback to legacy validation for required parameters
-      for (const requiredParam of nodeDefinition.requiredParams) {
-        if (!(requiredParam in node.params)) {
+    if (isCustomNodeType) {
+      // Custom node parameter validation
+      this.validateCustomNodeParameters(node, errors);
+    } else if (nodeDefinition) {
+      // Use Zod schema validation for parameters if available
+      const paramValidation = validateNodeParameters(node.type, node.params);
+      if (!paramValidation.success) {
+        paramValidation.errors.forEach(error => {
           errors.push({
             type: 'semantic',
-            message: `Missing required parameter: ${requiredParam}`,
-            node: node.id,
-            field: requiredParam
+            message: `Parameter validation error: ${error}`,
+            node: node.id
           });
+        });
+      } else {
+        // Fallback to legacy validation for required parameters
+        for (const requiredParam of nodeDefinition.requiredParams) {
+          if (!(requiredParam in node.params)) {
+            errors.push({
+              type: 'semantic',
+              message: `Missing required parameter: ${requiredParam}`,
+              node: node.id,
+              field: requiredParam
+            });
+          }
         }
+        
+        // Additional custom validation
+        this.validateParameters(node, nodeDefinition, errors);
       }
-      
-      // Additional custom validation
-      this.validateParameters(node, nodeDefinition, errors);
     }
     
     return errors;
@@ -304,5 +312,59 @@ export class PipelineValidator {
     pathStack.pop();
     
     return [];
+  }
+  
+  private validateCustomNodeParameters(node: any, errors: ValidationError[]) {
+    let registry;
+    try {
+      registry = getCustomNodeRegistry();
+    } catch (error) {
+      console.warn(`Failed to get custom node registry for validation:`, error);
+      return;
+    }
+    const customNodeDef = registry.getNode(node.type);
+    
+    if (!customNodeDef) {
+      errors.push({
+        type: 'semantic',
+        message: `Custom node definition not found: ${node.type}`,
+        node: node.id
+      });
+      return;
+    }
+    
+    // Check required parameters
+    for (const requiredParam of customNodeDef.requiredParams) {
+      if (!(requiredParam in node.params)) {
+        errors.push({
+          type: 'semantic',
+          message: `Missing required parameter: ${requiredParam}`,
+          node: node.id,
+          field: requiredParam
+        });
+      }
+    }
+    
+    // Check for unexpected parameters if paramSchema is defined
+    if (customNodeDef.paramSchema) {
+      const definedParams = new Set([
+        ...customNodeDef.requiredParams,
+        ...customNodeDef.optionalParams
+      ]);
+      
+      for (const paramName of Object.keys(node.params)) {
+        if (!definedParams.has(paramName)) {
+          errors.push({
+            type: 'semantic',
+            message: `Unexpected parameter: ${paramName}`,
+            node: node.id,
+            field: paramName
+          });
+        }
+      }
+    }
+    
+    // TODO: Add more sophisticated parameter validation using paramSchema (Zod validation)
+    // This would require parsing and validating against the custom node's parameter schema
   }
 }

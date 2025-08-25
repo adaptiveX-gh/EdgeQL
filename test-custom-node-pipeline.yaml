@@ -1,0 +1,36 @@
+pipeline:
+  - id: data_loader
+    type: DataLoaderNode
+    params:
+      symbol: "BTC/USD"
+      timeframe: "1h"
+      dataset: "sample_ohlcv.csv"
+      
+  - id: custom_aggregation
+    type: AggregationNode
+    depends_on: [data_loader]
+    params:
+      operation: "mean"
+      columns: ["close", "volume"]
+      
+  - id: sma_fast
+    type: IndicatorNode
+    depends_on: [data_loader]
+    params:
+      indicator: "SMA"
+      period: 10
+      column: "close"
+      
+  - id: signals
+    type: CrossoverSignalNode
+    depends_on: [sma_fast, custom_aggregation]
+    params:
+      buy_condition: "fast > aggregation_mean"
+      sell_condition: "fast < aggregation_mean"
+      
+  - id: backtest
+    type: BacktestNode
+    depends_on: [signals, data_loader]
+    params:
+      initial_capital: 100000
+      commission: 0.001

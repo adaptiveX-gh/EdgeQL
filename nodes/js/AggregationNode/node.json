@@ -1,0 +1,71 @@
+{
+  "id": "AggregationNode",
+  "name": "Data Aggregation",
+  "description": "Aggregates dataframe data using various statistical operations",
+  "version": "1.0.0",
+  "runtime": "javascript",
+  "entryPoint": "./index.js",
+  "inputSchema": {
+    "type": "dataframe",
+    "description": "Input dataframe to be aggregated"
+  },
+  "outputSchema": {
+    "type": "dataframe",
+    "description": "Aggregated dataframe with computed statistics",
+    "additional_fields": {
+      "aggregations": {
+        "type": "object",
+        "description": "Computed aggregation values"
+      },
+      "operation": {
+        "type": "string",
+        "description": "Aggregation operation performed"
+      },
+      "grouped_by": {
+        "type": "string",
+        "description": "Column used for grouping (if applicable)"
+      },
+      "windowed_aggregation": {
+        "type": "boolean",
+        "description": "Whether windowed aggregation was applied"
+      }
+    }
+  },
+  "requiredParams": [
+    "operation",
+    "columns"
+  ],
+  "optionalParams": [
+    "group_by",
+    "window_size"
+  ],
+  "paramSchema": {
+    "operation": {
+      "type": "string",
+      "enum": ["sum", "mean", "median", "std", "min", "max", "count"],
+      "description": "Statistical operation to perform"
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Array of column names to aggregate"
+    },
+    "group_by": {
+      "type": "string",
+      "description": "Optional column to group data by before aggregation"
+    },
+    "window_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional window size for rolling aggregation"
+    }
+  },
+  "metadata": {
+    "author": "EdgeQL Team",
+    "tags": ["aggregation", "statistics", "data-processing"],
+    "category": "data-analysis"
+  }
+}

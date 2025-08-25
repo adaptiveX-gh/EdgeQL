@@ -1,0 +1,59 @@
+{
+  "id": "FilterNode",
+  "name": "Data Filter",
+  "description": "Filters dataframe rows based on specified conditions",
+  "version": "1.0.0",
+  "runtime": "javascript",
+  "entryPoint": "./index.js",
+  "inputSchema": {
+    "type": "dataframe",
+    "description": "Input dataframe to be filtered"
+  },
+  "outputSchema": {
+    "type": "dataframe",
+    "description": "Filtered dataframe with subset of original rows",
+    "additional_fields": {
+      "filter_applied": {
+        "type": "object",
+        "properties": {
+          "column": "string",
+          "condition": "string",
+          "operator": "string"
+        }
+      }
+    }
+  },
+  "requiredParams": [
+    "column",
+    "condition"
+  ],
+  "optionalParams": [
+    "operator",
+    "sort_by"
+  ],
+  "paramSchema": {
+    "column": {
+      "type": "string",
+      "description": "Column name to filter on"
+    },
+    "condition": {
+      "type": "string", 
+      "description": "Filter condition (e.g., '>50', '<100', '==BTC')"
+    },
+    "operator": {
+      "type": "string",
+      "enum": ["greater_than", "less_than", "equals", "not_equals", "contains"],
+      "default": "greater_than",
+      "description": "Comparison operator for the filter"
+    },
+    "sort_by": {
+      "type": "string",
+      "description": "Optional column to sort filtered results by"
+    }
+  },
+  "metadata": {
+    "author": "EdgeQL Team",
+    "tags": ["filter", "data-processing", "transformation"],
+    "category": "data-transformation"
+  }
+}

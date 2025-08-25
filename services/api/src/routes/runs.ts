@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Router as RouterType } from 'express';
-import { PipelineRun, ApiResponse } from '../types/index.js';
+import { PipelineRun, ApiResponse, LogEntry } from '../types/index.js';
 import { RunStorage } from '../utils/storage.js';
 import { executor } from './pipelines.js';
 
@@ -87,6 +87,59 @@ router.get('/:id/logs', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve run logs'
+    } as ApiResponse);
+  }
+});
+
+// GET /api/runs/:id/structured-logs - Get structured logs with optional filtering
+router.get('/:id/structured-logs', async (req, res) => {
+  try {
+    const run = await RunStorage.get(req.params.id);
+    
+    if (!run) {
+      return res.status(404).json({
+        success: false,
+        error: 'Run not found'
+      } as ApiResponse);
+    }
+    
+    let logs = run.structuredLogs || [];
+    
+    // Apply filters based on query parameters
+    const { nodeId, level, source, limit, offset } = req.query;
+    
+    if (nodeId) {
+      logs = logs.filter(log => log.nodeId === nodeId);
+    }
+    
+    if (level) {
+      logs = logs.filter(log => log.level === level);
+    }
+    
+    if (source) {
+      logs = logs.filter(log => log.source === source);
+    }
+    
+    // Apply pagination
+    const limitNum = limit ? Math.min(parseInt(limit as string), 1000) : 1000;
+    const offsetNum = offset ? parseInt(offset as string) : 0;
+    
+    const paginatedLogs = logs.slice(offsetNum, offsetNum + limitNum);
+    
+    const response: ApiResponse<{ logs: LogEntry[]; total: number; hasMore: boolean }> = {
+      success: true,
+      data: {
+        logs: paginatedLogs,
+        total: logs.length,
+        hasMore: offsetNum + limitNum < logs.length
+      }
+    };
+    
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve structured logs'
     } as ApiResponse);
   }
 });
@@ -219,6 +272,130 @@ router.post('/:id/cancel', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to cancel run'
+    } as ApiResponse);
+  }
+});
+
+// GET /api/runs/:id/export/trades - Export trade history as CSV
+router.get('/:id/export/trades', async (req, res) => {
+  try {
+    const run = await RunStorage.get(req.params.id);
+    
+    if (!run) {
+      return res.status(404).json({
+        success: false,
+        error: 'Run not found'
+      } as ApiResponse);
+    }
+
+    if (!run.results?.trades || run.results.trades.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No trade data available for this run'
+      } as ApiResponse);
+    }
+
+    // Create CSV header
+    const csvHeader = 'entry_time,exit_time,symbol,side,quantity,entry_price,exit_price,pnl,return_pct,commission_paid,slippage_cost,status\n';
+    
+    // Convert trades to CSV rows
+    const csvRows = run.results.trades.map(trade => {
+      const symbol = 'BTC-USD'; // Default symbol, could be extracted from pipeline or dataset
+      return `${trade.entry_time || ''},${trade.exit_time || ''},${symbol},${trade.side},${trade.quantity},${trade.entry_price},${trade.exit_price},${trade.pnl || 0},${trade.return_pct || 0},${trade.commission_paid || 0},${trade.slippage_cost || 0},${trade.status || 'closed'}`;
+    }).join('\n');
+    
+    const csvContent = csvHeader + csvRows;
+    
+    // Set appropriate headers for CSV download
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="trades-${run.id}.csv"`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    // For large exports, let compression middleware handle it automatically
+    if (csvContent.length > 1024) {
+      res.setHeader('Content-Encoding', 'gzip');
+    }
+    
+    // Send CSV content
+    return res.send(csvContent);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to export trades'
+    } as ApiResponse);
+  }
+});
+
+// GET /api/runs/:id/export/metrics - Export metrics as formatted JSON
+router.get('/:id/export/metrics', async (req, res) => {
+  try {
+    const run = await RunStorage.get(req.params.id);
+    
+    if (!run) {
+      return res.status(404).json({
+        success: false,
+        error: 'Run not found'
+      } as ApiResponse);
+    }
+
+    if (!run.results) {
+      return res.status(404).json({
+        success: false,
+        error: 'No metrics data available for this run'
+      } as ApiResponse);
+    }
+
+    // Transform results to include all metrics in camelCase
+    const transformedResults = transformBacktestResults(run.results);
+    
+    // Create comprehensive metrics export
+    const metricsExport = {
+      runId: run.id,
+      pipelineId: run.pipelineId,
+      status: run.status,
+      startTime: run.startTime,
+      endTime: run.endTime,
+      exportedAt: new Date().toISOString(),
+      performance: {
+        returns: {
+          totalReturn: transformedResults.totalReturn,
+          annualReturn: transformedResults.annualReturn || 0
+        },
+        risk: {
+          sharpeRatio: transformedResults.sharpeRatio,
+          maxDrawdown: transformedResults.maxDrawdown,
+          maxDrawdownDuration: transformedResults.maxDrawdownDuration || 0
+        },
+        trading: {
+          numTrades: transformedResults.numTrades,
+          winRate: transformedResults.winRate,
+          profitFactor: transformedResults.profitFactor || 0,
+          avgTradeReturn: transformedResults.avgTradeReturn || 0
+        },
+        capital: {
+          initialCapital: 100000, // Default initial capital
+          finalCapital: transformedResults.finalCapital
+        }
+      },
+      summary: {
+        profitable: transformedResults.totalReturn > 0,
+        totalTrades: transformedResults.numTrades,
+        winningTrades: Math.round(transformedResults.numTrades * transformedResults.winRate),
+        losingTrades: transformedResults.numTrades - Math.round(transformedResults.numTrades * transformedResults.winRate)
+      }
+    };
+
+    // Set appropriate headers for JSON download
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="metrics-${run.id}.json"`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    // Send formatted JSON with compression support
+    return res.json(metricsExport);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to export metrics'
     } as ApiResponse);
   }
 });
