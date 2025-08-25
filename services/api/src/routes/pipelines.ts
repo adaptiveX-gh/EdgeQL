@@ -266,7 +266,39 @@ router.post('/:id/run', async (req, res) => {
         const dslToExecute = dsl || pipeline.dsl;
         
         // Execute pipeline using the real executor
-        const executionResult = await executor.executePipeline(pipelineId, dslToExecute);
+        console.log('🚀 API: About to execute pipeline:', pipelineId);
+        console.log('🚀 API: DSL length:', dslToExecute.length);
+        
+        let executionResult;
+        try {
+          executionResult = await executor.executePipeline(pipelineId, dslToExecute);
+        } catch (executionError) {
+          console.error('🔥 CAUGHT EXECUTION ERROR:', executionError);
+          console.error('🔥 Error message:', executionError.message);
+          console.error('🔥 Stack trace:', executionError.stack);
+          
+          // Create a failed result
+          executionResult = {
+            success: false,
+            runId: run.id,
+            results: new Map(),
+            totalExecutionTime: 0,
+            finalOutputs: new Map(),
+            error: executionError.message || 'Unknown error',
+            debugLogs: [
+              '🔥 EXECUTION ERROR CAUGHT IN API',
+              `Error: ${executionError.message}`,
+              `Stack: ${executionError.stack}`
+            ]
+          };
+        }
+        
+        console.log('🚀 API: Execution result:', executionResult.success ? '✅' : '❌', executionResult.error);
+        
+        // Add debug logs to run logs if available
+        if (executionResult.debugLogs) {
+          run.logs.push(...executionResult.debugLogs);
+        }
         
         if (executionResult.success) {
           run.status = 'completed';

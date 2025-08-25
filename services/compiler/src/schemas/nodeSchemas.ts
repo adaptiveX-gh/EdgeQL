@@ -49,6 +49,17 @@ export const NodeIOContracts = {
     })
   },
   
+  AggregationNode: {
+    input: DataframeSchema,
+    output: DataframeSchema.extend({
+      // Aggregation adds aggregation metadata to the dataframe
+      aggregations: z.object({}).optional(),
+      operation: z.string().optional(),
+      grouped_by: z.string().optional(),
+      windowed_aggregation: z.boolean().optional()
+    })
+  },
+  
   CrossoverSignalNode: {
     input: z.union([
       DataframeSchema, // Single dataframe input
@@ -178,6 +189,16 @@ export function getNodeOutputSchema(nodeType: string, parameters?: any): any {
         indicator_column: indicator.toLowerCase()
       };
       
+    case 'AggregationNode':
+      return {
+        type: 'dataframe',
+        columns: ['timestamp', 'open', 'high', 'low', 'close', 'volume'],
+        aggregations: {},
+        operation: parameters?.operation || 'unknown',
+        grouped_by: parameters?.group_by,
+        windowed_aggregation: !!parameters?.window_size
+      };
+      
     case 'CrossoverSignalNode':
       const signalCol = parameters?.signal_column || 'signal';
       return {
@@ -243,6 +264,10 @@ export function validatePipelineDataFlow(
 export function isCustomNode(nodeType: string): boolean {
   try {
     const registry = getCustomNodeRegistry();
+    if (!registry) {
+      console.warn(`Custom node registry is undefined for nodeType: ${nodeType}`);
+      return false;
+    }
     return registry.isCustomNode(nodeType);
   } catch (error) {
     console.warn(`Failed to check if ${nodeType} is custom node:`, error);
@@ -253,6 +278,10 @@ export function isCustomNode(nodeType: string): boolean {
 export function getCustomNodeSchemas(nodeType: string): { inputSchema: any; outputSchema: any } | undefined {
   try {
     const registry = getCustomNodeRegistry();
+    if (!registry) {
+      console.warn(`Custom node registry is undefined for nodeType: ${nodeType}`);
+      return undefined;
+    }
     return registry.getNodeSchemas(nodeType);
   } catch (error) {
     console.warn(`Failed to get custom node schemas for ${nodeType}:`, error);
@@ -263,6 +292,10 @@ export function getCustomNodeSchemas(nodeType: string): { inputSchema: any; outp
 export function validateCustomNodeReferences(nodeTypes: string[]): { valid: boolean; missingNodes: string[] } {
   try {
     const registry = getCustomNodeRegistry();
+    if (!registry) {
+      console.warn(`Custom node registry is undefined for nodeTypes: ${nodeTypes.join(', ')}`);
+      return { valid: true, missingNodes: [] };
+    }
     return registry.validateNodeReferences(nodeTypes);
   } catch (error) {
     console.warn(`Failed to validate custom node references:`, error);
@@ -386,7 +419,7 @@ export function validatePipelineDataFlowEnhanced(
 }
 
 function isBuiltinNode(nodeType: string): boolean {
-  const builtinNodes = ['DataLoaderNode', 'IndicatorNode', 'CrossoverSignalNode', 'BacktestNode'];
+  const builtinNodes = ['DataLoaderNode', 'IndicatorNode', 'CrossoverSignalNode', 'BacktestNode', 'AggregationNode'];
   return builtinNodes.includes(nodeType);
 }
 

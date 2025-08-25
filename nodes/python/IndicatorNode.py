@@ -238,12 +238,13 @@ class IndicatorNode:
 
 def main():
     """Entry point when run as standalone script in Docker sandbox"""
-    if len(sys.argv) != 3:
-        print("Usage: python IndicatorNode.py <input_json> <output_json>")
+    if len(sys.argv) not in [3, 4]:
+        print("Usage: python IndicatorNode.py <input_json> <output_json> [logs_json]")
         sys.exit(1)
 
     input_file = sys.argv[1]
     output_file = sys.argv[2]
+    logs_file = sys.argv[3] if len(sys.argv) > 3 else None
 
     try:
         # Read input data and parameters

@@ -4,7 +4,8 @@ import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getCustomNodeRegistry } from '../../../compiler/src/registry/CustomNodeRegistry.js';
+// Import from the compiler package's public registry export
+import { getCustomNodeRegistry } from '@edgeql/compiler/registry/CustomNodeRegistry';
 
 export class CustomNodeRunner implements NodeRunner {
   // Track running containers by runId for cancellation
@@ -13,6 +14,10 @@ export class CustomNodeRunner implements NodeRunner {
   canHandle(nodeType: string): boolean {
     try {
       const registry = getCustomNodeRegistry();
+      if (!registry) {
+        console.warn(`Custom node registry is undefined for canHandle(${nodeType})`);
+        return false;
+      }
       return registry.isCustomNode(nodeType);
     } catch (error) {
       console.warn(`Failed to check if ${nodeType} can be handled by CustomNodeRunner:`, error);
@@ -79,6 +84,18 @@ export class CustomNodeRunner implements NodeRunner {
           executionTime: Date.now() - startTime
         };
       }
+      
+      // Ensure registry is defined before using it
+      if (!registry) {
+        return {
+          success: false,
+          nodeId,
+          error: 'Custom node registry is undefined after initialization',
+          logs: [...logs, 'Registry undefined after getCustomNodeRegistry()'],
+          executionTime: Date.now() - startTime
+        };
+      }
+      
       const customNodeDef = registry.getNode(nodeType);
       
       if (!customNodeDef) {
@@ -257,8 +274,7 @@ export class CustomNodeRunner implements NodeRunner {
         '--user', 'edgeql',                 // Non-root user
         '--security-opt', 'no-new-privileges', // Security constraint
         'edgeql-nodejs-sandbox',            // Image name
-        'node', '/workspace/node/node.js',  // Entry point to custom node
-        '/workspace/input/input.json',
+        '/workspace/input/input.json',      // Arguments to SandboxRunner.js
         '/workspace/output/output.json'
       ];
       

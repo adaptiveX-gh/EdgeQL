@@ -49,27 +49,38 @@ export class PipelineExecutor {
   ): Promise<PipelineExecutionResult> {
     const runId = uuidv4();
     const startTime = Date.now();
+    const debugLogs: string[] = ['🔧 EXECUTOR: Starting pipeline execution'];
     
     // Track this run as active
     this.activeRuns.set(runId, false);
+    debugLogs.push('🔧 EXECUTOR: Run tracking set up');
     
     try {
       // Compile the pipeline
+      debugLogs.push('🔧 Creating PipelineCompiler...');
+      console.log('🔧 Creating PipelineCompiler...');
       const compiler = new PipelineCompiler();
+      debugLogs.push('🔧 Calling compiler.compile()...');
+      console.log('🔧 Calling compiler.compile()...');
       const compilationResult = compiler.compile(dslContent);
+      debugLogs.push(`🔧 Compilation result: ${compilationResult.success ? '✅ SUCCESS' : '❌ FAILED'}`);
+      console.log('🔧 Compilation result:', compilationResult.success ? '✅ SUCCESS' : '❌ FAILED');
       
       if (!compilationResult.success || !compilationResult.pipeline) {
+        debugLogs.push(`❌ Compilation failed: ${compilationResult.errors?.map(e => e.message).join(', ')}`);
         return {
           success: false,
           runId,
           results: new Map(),
           totalExecutionTime: Date.now() - startTime,
           finalOutputs: new Map(),
-          error: `Compilation failed: ${compilationResult.errors?.map(e => e.message).join(', ')}`
+          error: `Compilation failed: ${compilationResult.errors?.map(e => e.message).join(', ')}`,
+          debugLogs
         };
       }
       
       const pipeline = compilationResult.pipeline;
+      debugLogs.push('🔧 Pipeline compiled successfully');
       
       // Create execution context
       const context: ExecutionContext = {
@@ -80,10 +91,12 @@ export class PipelineExecutor {
         datasets: new Map([['sample_ohlcv.csv', '/datasets/BTC_1m_hyperliquid_perpetualx.csv']]),
         cancelled: false
       };
+      debugLogs.push('🔧 Execution context created');
       
       // Execute nodes in order
       const results = new Map<string, ExecutionResult>();
       const outputs = new Map<string, any>();
+      debugLogs.push(`🔧 Starting node execution, order: ${pipeline.executionOrder.join(', ')}`);
       
       for (const nodeId of pipeline.executionOrder) {
         // Check for cancellation before executing each node
@@ -158,12 +171,23 @@ export class PipelineExecutor {
         runId,
         results,
         totalExecutionTime: Date.now() - startTime,
-        finalOutputs: outputs
+        finalOutputs: outputs,
+        debugLogs
       };
       
     } catch (error) {
       // Clean up active runs tracking
       this.activeRuns.delete(runId);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
+      
+      debugLogs.push(`💥 EXECUTION ERROR CAUGHT: ${errorMessage}`);
+      debugLogs.push(`💥 Stack trace: ${stackTrace}`);
+      
+      console.error('💥 EXECUTION ERROR CAUGHT:', error);
+      console.error('💥 Error message:', errorMessage);
+      console.error('💥 Stack trace:', stackTrace);
       
       return {
         success: false,
@@ -171,7 +195,8 @@ export class PipelineExecutor {
         results: new Map(),
         totalExecutionTime: Date.now() - startTime,
         finalOutputs: new Map(),
-        error: error instanceof Error ? error.message : 'Unknown execution error'
+        error: errorMessage,
+        debugLogs
       };
     }
   }

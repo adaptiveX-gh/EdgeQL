@@ -48,4 +48,5 @@ export interface PipelineExecutionResult {
   finalOutputs: Map<string, any>;
   error?: string;
   cancelled?: boolean; // Add cancelled flag
+  debugLogs?: string[]; // Add debug logs for troubleshooting
 }

@@ -322,6 +322,13 @@ export class PipelineValidator {
       console.warn(`Failed to get custom node registry for validation:`, error);
       return;
     }
+    
+    // Ensure registry is defined before using it
+    if (!registry) {
+      console.warn(`Custom node registry is undefined after initialization`);
+      return;
+    }
+    
     const customNodeDef = registry.getNode(node.type);
     
     if (!customNodeDef) {

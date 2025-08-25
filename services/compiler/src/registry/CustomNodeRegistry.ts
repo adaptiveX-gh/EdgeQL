@@ -36,10 +36,15 @@ export class CustomNodeRegistry {
   
   constructor(config: CustomNodeRegistryConfig = {}) {
     this.customNodesPath = config.customNodesPath || this.getDefaultNodesPath();
-    this.enableAutoDiscovery = config.enableAutoDiscovery ?? true;
+    this.enableAutoDiscovery = config.enableAutoDiscovery !== false; // Enable by default
     
     if (this.enableAutoDiscovery) {
-      this.discoverNodes();
+      try {
+        this.discoverNodes();
+      } catch (error) {
+        console.error('⚠️ CustomNodeRegistry: Failed to discover nodes:', error);
+        // Don't throw, just log the error and continue with empty registry
+      }
     }
   }
   
@@ -206,7 +211,8 @@ export class CustomNodeRegistry {
       'DataLoaderNode',
       'IndicatorNode', 
       'CrossoverSignalNode',
-      'BacktestNode'
+      'BacktestNode',
+      'AggregationNode' // Added AggregationNode as a recognized node type
     ];
     return builtinNodes.includes(nodeType);
   }
@@ -263,9 +269,24 @@ let globalRegistry: CustomNodeRegistry | undefined;
 
 export function getCustomNodeRegistry(config?: CustomNodeRegistryConfig): CustomNodeRegistry {
   if (!globalRegistry) {
-    globalRegistry = new CustomNodeRegistry(config);
+    try {
+      globalRegistry = new CustomNodeRegistry(config);
+    } catch (error) {
+      console.error('Failed to create CustomNodeRegistry:', error);
+      // If we can't create the registry, throw the original error to see what it is
+      throw new Error(`CustomNodeRegistry creation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   return globalRegistry;
+}
+
+function createMinimalRegistry(): CustomNodeRegistry {
+  // Create a registry instance that bypasses the problematic constructor
+  const registry = Object.create(CustomNodeRegistry.prototype);
+  registry.nodes = new Map<string, CustomNodeDefinition>();
+  registry.customNodesPath = '';
+  registry.enableAutoDiscovery = false;
+  return registry;
 }
 
 export function resetCustomNodeRegistry(): void {

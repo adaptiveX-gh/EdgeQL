@@ -266,15 +266,67 @@ async function executeInSandbox(userCode, inputs, params) {
       }
     };
 
-    // Create the user function in restricted context
-    const userFunction = new Function('context', 'require', `
-      const { inputs, params, console, setTimeout } = context;
-      ${userCode}
-    `);
+    // Execute the code based on its type
+    let userFunction;
+    if (userCode.includes('module.exports') || userCode.includes('function execute')) {
+      // Built-in node format - execute directly with require support
+      userFunction = new Function('context', 'require', 'fs', 'path', `
+        const { inputs, params, console, setTimeout } = context;
+        ${userCode}
+        
+        // For built-in nodes, create a mock file system for execute function
+        const mockInputFile = '/tmp/input.json';
+        const mockOutputFile = '/tmp/output.json';
+        
+        // Write input to mock location
+        const inputData = {
+          nodeType: context.nodeType || 'unknown',
+          params,
+          inputs,
+          context: context
+        };
+        
+        // Mock file system operations for built-in nodes
+        const mockFs = {
+          ...fs,
+          readFileSync: (file, encoding) => {
+            if (file === mockInputFile) {
+              return JSON.stringify(inputData, null, 2);
+            }
+            return fs.readFileSync(file, encoding);
+          },
+          writeFileSync: (file, data) => {
+            if (file === mockOutputFile) {
+              const parsed = JSON.parse(data);
+              context._result = parsed;
+              return;
+            }
+            return fs.writeFileSync(file, data);
+          }
+        };
+        
+        // For built-in nodes with execute function
+        if (typeof execute === 'function') {
+          return execute(mockInputFile, mockOutputFile);
+        }
+        
+        // Return the stored result
+        return context._result;
+      `);
+    } else {
+      // Custom user code format
+      userFunction = new Function('context', 'require', `
+        const { inputs, params, console, setTimeout } = context;
+        ${userCode}
+      `);
+    }
+
+    // Add nodeType to sandbox context
+    sandboxContext.nodeType = params.nodeType || 'unknown';
 
     // Execute user code
     result = await Promise.race([
-      Promise.resolve(userFunction(sandboxContext, global.require)),
+      Promise.resolve(userFunction(sandboxContext, global.require, fs, path)),
       new Promise((_, reject) => {
         setTimeout(() => reject(new SandboxViolationError('TIMEOUT', 'Promise timeout')), 
           SANDBOX_CONFIG.timeLimit * 1000);
@@ -311,7 +363,10 @@ async function executeInSandbox(userCode, inputs, params) {
 
 // Worker thread execution
 if (!isMainThread) {
-  const { code, inputs, params } = workerData;
+  const { code, inputs, params, nodeType } = workerData;
+  
+  // Add nodeType to params for context
+  params.nodeType = nodeType;
   
   executeInSandbox(code, inputs, params)
     .then(result => {
@@ -340,18 +395,46 @@ if (isMainThread && require.main === module) {
     try {
       // Read input
       const inputData = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
-      const { nodeType, params = {}, inputs = {}, userCode } = inputData;
+      const { nodeType, params = {}, inputs = {}, userCode, nodeDefinition } = inputData;
 
-      if (!userCode) {
-        throw new Error('No user code provided in input data');
+      let executableCode = userCode;
+      
+      // If no userCode, check if we have a known built-in node
+      if (!executableCode && nodeDefinition && nodeDefinition.entryPoint) {
+        // For built-in nodes like AggregationNode, FilterNode, etc.
+        const nodePath = path.resolve('/app/nodes', path.basename(nodeDefinition.entryPoint));
+        if (fs.existsSync(nodePath)) {
+          executableCode = fs.readFileSync(nodePath, 'utf8');
+        }
+      }
+      
+      // Try to find the node by type in the nodes directory structure
+      if (!executableCode) {
+        const possiblePaths = [
+          `/app/nodes/${nodeType}/index.js`,
+          `/app/nodes/${nodeType}.js`,
+          '/app/nodes/CustomJSNode.js'
+        ];
+        
+        for (const nodePath of possiblePaths) {
+          if (fs.existsSync(nodePath)) {
+            executableCode = fs.readFileSync(nodePath, 'utf8');
+            break;
+          }
+        }
+      }
+
+      if (!executableCode) {
+        throw new Error(`No executable code found for node type: ${nodeType}. Checked for userCode, nodeDefinition.entryPoint, and built-in node files.`);
       }
 
       // Execute in worker thread for additional isolation
       const worker = new Worker(__filename, {
         workerData: {
-          code: userCode,
+          code: executableCode,
           inputs,
-          params
+          params,
+          nodeType
         }
       });
 

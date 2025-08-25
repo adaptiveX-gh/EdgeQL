@@ -235,6 +235,10 @@ export class PipelineCompiler {
     // Check if it's a registered custom node
     try {
       const registry = getCustomNodeRegistry();
+      if (!registry) {
+        console.warn(`Custom node registry is undefined for nodeType: ${nodeType}`);
+        return 'javascript';
+      }
       const customNode = registry.getNode(nodeType);
       if (customNode) {
         return customNode.runtime;
@@ -252,6 +256,10 @@ export class PipelineCompiler {
     if (isCustomNode(nodeType)) {
       try {
         const registry = getCustomNodeRegistry();
+        if (!registry) {
+          console.warn(`Custom node registry is undefined for nodeType: ${nodeType}`);
+          return {};
+        }
         const customNode = registry.getNode(nodeType);
         return customNode?.inputSchema || {};
       } catch (error) {
@@ -279,6 +287,10 @@ export class PipelineCompiler {
     if (isCustomNode(nodeType)) {
       try {
         const registry = getCustomNodeRegistry();
+        if (!registry) {
+          console.warn(`Custom node registry is undefined for nodeType: ${nodeType}`);
+          return {};
+        }
         const customNode = registry.getNode(nodeType);
         return customNode?.outputSchema || {};
       } catch (error) {
@@ -390,6 +402,16 @@ export class PipelineCompiler {
         errors: []
       };
     }
+    
+    // Ensure registry is defined before using it
+    if (!registry) {
+      console.warn(`Custom node registry is undefined after initialization`);
+      return {
+        valid: true,
+        errors: []
+      };
+    }
+    
     const validation = registry.validateNodeReferences(nodeTypes);
     
     if (!validation.valid) {

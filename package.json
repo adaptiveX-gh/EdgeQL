@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "pnpm --recursive --parallel dev",
+  "dev:app": "pnpm --parallel --filter @edgeql/api --filter @edgeql/web dev",
     "build": "pnpm --recursive build",
     "clean": "pnpm --recursive clean",
     "test": "pnpm run test:unit && pnpm run test:integration",
@@ -59,6 +60,7 @@
     "eslint": "^8.0.0",
     "prettier": "^3.0.0",
     "supertest": "^6.3.0",
+    "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "uuid": "^9.0.0",
     "vitest": "^1.0.0"

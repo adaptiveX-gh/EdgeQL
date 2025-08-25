@@ -1,0 +1,31 @@
+{
+  "nodeType": "custom_aggregation",
+  "nodeDefinition": {
+    "id": "test-aggregation",
+    "name": "Test Aggregation",
+    "version": "1.0.0",
+    "inputSchema": {},
+    "outputSchema": {},
+    "requiredParams": ["operation", "columns"],
+    "optionalParams": ["group_by", "window_size"]
+  },
+  "params": {
+    "operation": "sum",
+    "columns": ["close", "volume"]
+  },
+  "inputs": {
+    "input_data": {
+      "type": "dataframe",
+      "rows": 1000
+    }
+  },
+  "context": {
+    "runId": "test-run",
+    "pipelineId": "test-pipeline",
+    "nodeId": "test-node",
+    "datasets": {
+      "sample_ohlcv.csv": "/datasets/sample_ohlcv.csv"
+    }
+  },
+  "userCode": "// Test custom JavaScript code\nconst result = { type: 'dataframe', aggregations: { close_sum: 12345, volume_sum: 67890 } };\nreturn { success: true, result: result };"
+}
