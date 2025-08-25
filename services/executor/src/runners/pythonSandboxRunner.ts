@@ -137,10 +137,10 @@ export class PythonSandboxRunner implements NodeRunner {
       const containerName = `edgeql-python-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       
       // Convert Windows paths to Docker-compatible format
-      const dockerTempDir = this.convertToDockerPath(tempDir, logs);
+      const dockerTempDir = this.convertToDockerPath(tempDir);
       // Find the project root directory (where datasets/ is located)
       const projectRoot = this.findProjectRoot();
-      const dockerDatasetsDir = this.convertToDockerPath(path.join(projectRoot, 'datasets'), logs);
+      const dockerDatasetsDir = this.convertToDockerPath(path.join(projectRoot, 'datasets'));
       
       // Docker run command with resource constraints and security settings
       const dockerArgs = [
@@ -165,31 +165,10 @@ export class PythonSandboxRunner implements NodeRunner {
       logs.push(`Starting Docker container: ${containerName}`);
       logs.push(`Docker command: docker ${dockerArgs.join(' ')}`);
       
-      // Set environment variables for Docker process
-      const dockerEnv = { ...process.env };
-      
-      // On Windows, disable MSYS path conversion to prevent Git Bash from transforming Docker volume paths
-      if (process.platform === 'win32') {
-        dockerEnv.MSYS_NO_PATHCONV = '1';
-      }
-      
-      // On Windows, bypass MSYS/Git Bash path conversion by using cmd.exe directly
-      let dockerProcess;
-      if (process.platform === 'win32') {
-        // Build the full command string for cmd.exe
-        const fullCommand = ['docker', ...dockerArgs].join(' ');
-        dockerProcess = spawn('cmd.exe', ['/c', fullCommand], {
-          stdio: 'pipe',
-          timeout: 60000,
-          env: dockerEnv
-        });
-      } else {
-        dockerProcess = spawn('docker', dockerArgs, {
-          stdio: 'pipe',
-          timeout: 60000,
-          env: dockerEnv
-        });
-      }
+      const dockerProcess = spawn('docker', dockerArgs, {
+        stdio: 'pipe',
+        timeout: 60000 // 60 second timeout
+      });
       
       let stdout = '';
       let stderr = '';
@@ -282,7 +261,7 @@ export class PythonSandboxRunner implements NodeRunner {
     return process.cwd();
   }
   
-  private convertToDockerPath(windowsPath: string, logs?: string[]): string {
+  private convertToDockerPath(windowsPath: string): string {
     // Convert Windows paths to Docker Desktop compatible format
     if (process.platform === 'win32') {
       // Convert C:\path\to\file to /c/path/to/file format for Docker Desktop
@@ -290,12 +269,9 @@ export class PythonSandboxRunner implements NodeRunner {
       
       // Handle drive letters: C: -> /c
       if (normalized.match(/^[A-Za-z]:/)) {
-        const dockerPath = '/' + normalized.charAt(0).toLowerCase() + normalized.slice(2);
-        if (logs) logs.push(`Path conversion: ${windowsPath} -> ${dockerPath}`);
-        return dockerPath;
+        return '/' + normalized.charAt(0).toLowerCase() + normalized.slice(2);
       }
       
-      if (logs) logs.push(`Path conversion (no drive): ${windowsPath} -> ${normalized}`);
       return normalized;
     }
     

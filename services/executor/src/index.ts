@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PipelineCompiler, CompiledPipeline } from '@edgeql/compiler';
 import { BuiltinNodeRunner } from './runners/BuiltinRunner.js';
-import { PythonSandboxRunner } from './runners/PythonSandboxRunner.js';
+import { PythonSandboxRunner } from './runners/pythonSandboxRunner.js';
 import { NodejsSandboxRunner } from './runners/nodejsSandboxRunner.js';
 import { 
   NodeRunner, 
@@ -132,5 +132,5 @@ export class PipelineExecutor {
 // Export types and classes
 export * from './types.js';
 export { BuiltinNodeRunner } from './runners/BuiltinRunner.js';
-export { PythonSandboxRunner } from './runners/PythonSandboxRunner.js';
+export { PythonSandboxRunner } from './runners/pythonSandboxRunner.js';
 export { NodejsSandboxRunner } from './runners/nodejsSandboxRunner.js';
