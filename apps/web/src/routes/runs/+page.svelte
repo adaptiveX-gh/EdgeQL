@@ -11,6 +11,7 @@
   let limit = 25;
   let offset = 0;
   let hasMore = true;
+  let cancellingRuns = new Set<string>(); // Track which runs are being cancelled
 
   const statusOptions = [
     { value: 'all', label: 'All Runs' },
@@ -100,6 +101,28 @@
     if (minutes < 60) return `${minutes}m`;
     const hours = Math.round(minutes / 60);
     return `${hours}h`;
+  };
+
+  const cancelRun = async (runId: string) => {
+    try {
+      cancellingRuns.add(runId);
+      cancellingRuns = cancellingRuns; // Trigger reactivity
+      
+      await runApi.cancel(runId);
+      
+      // Refresh the runs to get updated status
+      await refresh();
+    } catch (error) {
+      console.error('Failed to cancel run:', error);
+      if (error instanceof ApiError) {
+        alert(`Failed to cancel run: ${error.message}`);
+      } else {
+        alert('Failed to cancel run. Please try again.');
+      }
+    } finally {
+      cancellingRuns.delete(runId);
+      cancellingRuns = cancellingRuns; // Trigger reactivity
+    }
   };
 
   $: filteredRuns = selectedStatus === 'all' 
@@ -246,6 +269,24 @@
               </div>
               
               <div class="flex gap-2">
+                {#if run.status === 'running' || run.status === 'pending'}
+                  <button 
+                    class="btn btn-error btn-sm" 
+                    disabled={cancellingRuns.has(run.id)}
+                    on:click={() => cancelRun(run.id)}
+                  >
+                    {#if cancellingRuns.has(run.id)}
+                      <span class="loading loading-spinner loading-xs mr-1"></span>
+                      Cancelling...
+                    {:else}
+                      <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                      </svg>
+                      Cancel
+                    {/if}
+                  </button>
+                {/if}
+                
                 {#if run.status === 'completed' && run.results}
                   <a href="/results/{run.id}" class="btn btn-primary btn-sm">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -253,7 +294,7 @@
                     </svg>
                     View Results
                   </a>
-                {:else}
+                {:else if run.status !== 'running' && run.status !== 'pending'}
                   <button class="btn btn-ghost btn-sm" disabled>
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>

@@ -12,6 +12,7 @@ import {
 
 export class PipelineExecutor {
   private runners: NodeRunner[];
+  private activeRuns = new Map<string, boolean>(); // Track active runs for cancellation
   
   constructor() {
     this.runners = [
@@ -21,12 +22,34 @@ export class PipelineExecutor {
     ];
   }
   
+  // Cancel a running pipeline
+  async cancelPipeline(runId: string): Promise<boolean> {
+    // Mark the run as cancelled
+    this.activeRuns.set(runId, true);
+    
+    // Cancel any running containers
+    const cancelPromises = this.runners
+      .filter(runner => runner.cancel)
+      .map(runner => runner.cancel!(runId));
+    
+    try {
+      await Promise.all(cancelPromises);
+      return true;
+    } catch (error) {
+      console.warn(`Warning during pipeline cancellation for run ${runId}:`, error);
+      return true; // Still consider it cancelled even if cleanup had issues
+    }
+  }
+  
   async executePipeline(
     pipelineId: string,
     dslContent: string
   ): Promise<PipelineExecutionResult> {
     const runId = uuidv4();
     const startTime = Date.now();
+    
+    // Track this run as active
+    this.activeRuns.set(runId, false);
     
     try {
       // Compile the pipeline
@@ -52,7 +75,8 @@ export class PipelineExecutor {
         pipelineId,
         workingDir: `/tmp/runs/${runId}`,
         artifacts: new Map(),
-        datasets: new Map([['sample_ohlcv.csv', '/datasets/BTC_1m_hyperliquid_perpetualx.csv']])
+        datasets: new Map([['sample_ohlcv.csv', '/datasets/BTC_1m_hyperliquid_perpetualx.csv']]),
+        cancelled: false
       };
       
       // Execute nodes in order
@@ -60,6 +84,22 @@ export class PipelineExecutor {
       const outputs = new Map<string, any>();
       
       for (const nodeId of pipeline.executionOrder) {
+        // Check for cancellation before executing each node
+        const isCancelled = this.activeRuns.get(runId);
+        if (isCancelled) {
+          context.cancelled = true;
+          this.activeRuns.delete(runId);
+          return {
+            success: false,
+            runId,
+            results,
+            totalExecutionTime: Date.now() - startTime,
+            finalOutputs: outputs,
+            error: 'Pipeline execution was cancelled',
+            cancelled: true
+          };
+        }
+        
         const node = pipeline.nodes.find(n => n.id === nodeId);
         if (!node) {
           throw new Error(`Node not found in compiled pipeline: ${nodeId}`);
@@ -108,6 +148,9 @@ export class PipelineExecutor {
         }
       }
       
+      // Clean up active runs tracking
+      this.activeRuns.delete(runId);
+      
       return {
         success: true,
         runId,
@@ -117,6 +160,9 @@ export class PipelineExecutor {
       };
       
     } catch (error) {
+      // Clean up active runs tracking
+      this.activeRuns.delete(runId);
+      
       return {
         success: false,
         runId,

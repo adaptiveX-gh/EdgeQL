@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import MonacoEditor from '../../../lib/monaco/MonacoEditor.svelte';
+  import ErrorPanel from '../../../lib/monaco/ErrorPanel.svelte';
+  import DatasetPicker from '../../../lib/components/DatasetPicker.svelte';
   import { pipelineApi, runApi, RunPoller, ApiError } from '../../../lib/api/client.js';
-  import type { Pipeline, PipelineRun } from '../../../lib/api/types.js';
+  import type { Pipeline, PipelineRun, PipelineIR, Dataset } from '../../../lib/api/types.js';
   
   export let pipelineId;
   
@@ -20,6 +22,19 @@
   let currentRun: PipelineRun | null = null;
   let isRunning = false;
   let runPoller: RunPoller | null = null;
+  let monacoEditor: any = null;
+  let showDatasetHelper = false;
+
+  // Validation state
+  let validationErrors: any[] = [];
+  let validationWarnings: string[] = [];
+  let isValidDSL = true;
+  
+  // Tab state and compiled IR
+  let activeTab = 'editor';
+  let compiledIR: PipelineIR | null = null;
+  let compilationError: string | null = null;
+  let isCompiling = false;
   
   onMount(async () => {
     // Skip loading if pipelineId is missing
@@ -52,6 +67,44 @@
 
   const handleDslChange = (event: CustomEvent<{ value: string }>) => {
     dslContent = event.detail.value;
+  };
+
+  const handleMonacoReady = (event: CustomEvent<{ editor: any }>) => {
+    monacoEditor = event.detail.editor;
+  };
+
+  const handleDatasetSelect = (event: CustomEvent<{ dataset: Dataset; insertText: string }>) => {
+    if (monacoEditor) {
+      const selection = monacoEditor.getSelection();
+      const range = selection || {
+        startLineNumber: 1,
+        startColumn: 1,
+        endLineNumber: 1,
+        endColumn: 1
+      };
+
+      monacoEditor.executeEdits('dataset-picker', [{
+        range: range,
+        text: event.detail.insertText
+      }]);
+
+      // Focus back to editor
+      monacoEditor.focus();
+    }
+    
+    showDatasetHelper = false;
+  };
+
+  const handleValidation = (event: CustomEvent<{ errors: any[]; warnings: string[]; isValid: boolean }>) => {
+    validationErrors = event.detail.errors;
+    validationWarnings = event.detail.warnings;
+    isValidDSL = event.detail.isValid;
+  };
+
+  const handleJumpToLine = (event: CustomEvent<{ line: number; column?: number }>) => {
+    if (monacoEditor) {
+      monacoEditor.jumpToLine(event.detail.line, event.detail.column);
+    }
   };
   
   const runPipeline = async () => {
@@ -145,6 +198,30 @@
     const numValue = (value ?? 0) * 100;
     return safeFormatNumber(numValue, decimals, 0);
   };
+
+  const switchTab = (tab: string) => {
+    activeTab = tab;
+    if (tab === 'compiled') {
+      compileToIR();
+    }
+  };
+
+  const compileToIR = async () => {
+    if (!pipeline) return;
+    
+    isCompiling = true;
+    compilationError = null;
+    
+    try {
+      compiledIR = await pipelineApi.compile(pipelineId, dslContent);
+    } catch (err) {
+      console.error('Failed to compile pipeline:', err);
+      compilationError = err instanceof ApiError ? err.message : 'Failed to compile pipeline to JSON IR';
+      compiledIR = null;
+    } finally {
+      isCompiling = false;
+    }
+  };
 </script>
 
 <svelte:head>
@@ -194,8 +271,9 @@
         <button 
           class="btn btn-primary" 
           class:loading={isRunning} 
-          disabled={isRunning || !pipeline} 
+          disabled={isRunning || !pipeline || !isValidDSL} 
           on:click={runPipeline}
+          title={!isValidDSL ? 'Fix DSL validation errors before running' : ''}
         >
           {#if isRunning}
             <span class="loading loading-spinner loading-sm"></span>
@@ -211,28 +289,149 @@
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- DSL Editor -->
+      <!-- Tabbed Editor -->
       <div class="lg:col-span-2">
         <div class="card bg-base-100 shadow-lg">
           <div class="card-body p-0">
-            <div class="bg-base-200 px-4 py-2 border-b">
-              <h3 class="font-semibold text-sm">Pipeline DSL</h3>
+            <!-- Tab Headers -->
+            <div role="tablist" class="tabs tabs-bordered bg-base-200 flex justify-between items-center px-4">
+              <div class="flex">
+                <button 
+                  class="tab {activeTab === 'editor' ? 'tab-active' : ''}" 
+                  on:click={() => switchTab('editor')}
+                >
+                  DSL Editor
+                </button>
+                <button 
+                  class="tab {activeTab === 'compiled' ? 'tab-active' : ''}" 
+                  on:click={() => switchTab('compiled')}
+                >
+                  Compiled JSON
+                  {#if isCompiling}
+                    <span class="loading loading-spinner loading-xs ml-2"></span>
+                  {/if}
+                </button>
+              </div>
+              
+              {#if activeTab === 'editor'}
+                <button 
+                  class="btn btn-ghost btn-xs"
+                  class:btn-active={showDatasetHelper}
+                  on:click={() => showDatasetHelper = !showDatasetHelper}
+                  title="Insert Dataset Reference"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                  </svg>
+                  Datasets
+                </button>
+              {/if}
             </div>
+            
+            <!-- Tab Content -->
             <div class="p-4">
-              <MonacoEditor
-                bind:value={dslContent}
-                language="dsl"
-                theme="vs-dark"
-                height="400px"
-                on:change={handleDslChange}
-                options={{
-                  minimap: { enabled: false },
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  scrollBeyondLastLine: false,
-                  fontSize: 14
-                }}
-              />
+              {#if activeTab === 'editor'}
+                <MonacoEditor
+                  bind:this={monacoEditor}
+                  bind:value={dslContent}
+                  language="dsl"
+                  theme="vs-dark"
+                  height="400px"
+                  enableValidation={true}
+                  validationDelay={1500}
+                  on:change={handleDslChange}
+                  on:ready={handleMonacoReady}
+                  on:validation={handleValidation}
+                  options={{
+                    minimap: { enabled: false },
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    fontSize: 14
+                  }}
+                />
+
+                <!-- Dataset Helper -->
+                {#if showDatasetHelper}
+                  <div class="mt-4 p-4 bg-base-200 rounded-lg">
+                    <div class="flex items-center justify-between mb-3">
+                      <h4 class="font-semibold text-sm">Insert Dataset Reference</h4>
+                      <button 
+                        class="btn btn-ghost btn-xs" 
+                        on:click={() => showDatasetHelper = false}
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    <div class="max-w-md">
+                      <DatasetPicker 
+                        placeholder="Choose a dataset to insert..."
+                        on:select={handleDatasetSelect}
+                      />
+                    </div>
+                    
+                    <div class="text-xs text-base-content/60 mt-2">
+                      Select a dataset above and it will be inserted at your cursor position in the DSL editor.
+                    </div>
+                  </div>
+                {/if}
+                
+                <!-- Error Panel -->
+                <div class="mt-4">
+                  <ErrorPanel
+                    errors={validationErrors}
+                    warnings={validationWarnings}
+                    on:jumpToLine={handleJumpToLine}
+                  />
+                </div>
+              {:else if activeTab === 'compiled'}
+                {#if isCompiling}
+                  <div class="flex items-center justify-center h-96">
+                    <div class="text-center">
+                      <span class="loading loading-spinner loading-lg"></span>
+                      <p class="text-sm text-base-content/70 mt-2">Compiling pipeline to JSON IR...</p>
+                    </div>
+                  </div>
+                {:else if compilationError}
+                  <div class="alert alert-error">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                    <div>
+                      <h3 class="font-bold">Compilation Error</h3>
+                      <div class="text-xs">{compilationError}</div>
+                    </div>
+                    <button class="btn btn-sm" on:click={compileToIR}>Retry</button>
+                  </div>
+                {:else if compiledIR}
+                  <MonacoEditor
+                    value={JSON.stringify(compiledIR, null, 2)}
+                    language="json"
+                    theme="vs-dark"
+                    height="400px"
+                    options={{
+                      readOnly: true,
+                      minimap: { enabled: false },
+                      lineNumbers: 'on',
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                      fontSize: 14
+                    }}
+                  />
+                {:else}
+                  <div class="flex items-center justify-center h-96">
+                    <div class="text-center">
+                      <p class="text-base-content/70">No compiled IR available</p>
+                      <button class="btn btn-primary btn-sm mt-2" on:click={compileToIR}>
+                        Compile Now
+                      </button>
+                    </div>
+                  </div>
+                {/if}
+              {/if}
             </div>
           </div>
         </div>

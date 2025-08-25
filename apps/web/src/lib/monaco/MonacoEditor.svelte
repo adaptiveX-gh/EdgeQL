@@ -8,16 +8,121 @@
   export let options: editor.IStandaloneEditorConstructionOptions = {};
   export let height: string = '400px';
   export let readonly: boolean = false;
+  export let enableValidation: boolean = false;
+  export let validationDelay: number = 1000;
+  
+  // Validation state
+  let validationTimeout: number | null = null;
+  let isValidating = false;
+  let currentErrors: any[] = [];
+  let currentWarnings: string[] = [];
+
+  // Exposed methods for controlling validation
+  export const setValidationErrors = (errors: any[], warnings: string[] = []) => {
+    if (!editor || !monaco) return;
+    
+    currentErrors = errors;
+    currentWarnings = warnings;
+    
+    // Convert errors to Monaco markers
+    const markers = errors.map(error => ({
+      startLineNumber: error.line || 1,
+      startColumn: error.column || 1,
+      endLineNumber: error.line || 1,
+      endColumn: error.column ? error.column + 10 : 100,
+      message: error.message,
+      severity: monaco.MarkerSeverity.Error,
+      source: 'DSL Validator'
+    }));
+    
+    // Add warnings as info markers
+    const warningMarkers = warnings.map((warning, index) => ({
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 100,
+      message: warning,
+      severity: monaco.MarkerSeverity.Warning,
+      source: 'DSL Validator'
+    }));
+    
+    // Set markers on the model
+    monaco.editor.setModelMarkers(model, 'dsl-validation', [...markers, ...warningMarkers]);
+  };
+
+  export const clearValidationErrors = () => {
+    if (!editor || !monaco) return;
+    currentErrors = [];
+    currentWarnings = [];
+    monaco.editor.setModelMarkers(model, 'dsl-validation', []);
+  };
+
+  // Jump to line method
+  export const jumpToLine = (line: number, column?: number) => {
+    if (!editor) return;
+    
+    editor.setPosition({ lineNumber: line, column: column || 1 });
+    editor.revealLineInCenter(line);
+    editor.focus();
+  };
+
+  // Validation function
+  const performValidation = async (content: string) => {
+    if (!enableValidation || !content.trim()) {
+      clearValidationErrors();
+      dispatch('validation', { errors: [], warnings: [], isValid: true });
+      return;
+    }
+
+    isValidating = true;
+    
+    try {
+      // Import the validation function dynamically to avoid circular dependencies
+      const { pipelineApi } = await import('../api/client.js');
+      
+      const result = await pipelineApi.validate(content);
+      
+      const errors = result.errors || [];
+      const warnings = result.warnings || [];
+      
+      setValidationErrors(errors, warnings);
+      dispatch('validation', { 
+        errors, 
+        warnings, 
+        isValid: result.valid 
+      });
+    } catch (error) {
+      console.error('Validation error:', error);
+      // Don't show API errors as DSL validation errors
+      clearValidationErrors();
+      dispatch('validation', { errors: [], warnings: [], isValid: true });
+    } finally {
+      isValidating = false;
+    }
+  };
+
+  // Debounced validation
+  const scheduleValidation = (content: string) => {
+    if (validationTimeout) {
+      clearTimeout(validationTimeout);
+    }
+    
+    validationTimeout = window.setTimeout(() => {
+      performValidation(content);
+    }, validationDelay);
+  };
 
   const dispatch = createEventDispatcher<{
     change: { value: string };
     ready: { editor: editor.IStandaloneCodeEditor };
+    validation: { errors: any[]; warnings: string[]; isValid: boolean };
   }>();
 
   let container: HTMLElement;
   let editor: editor.IStandaloneCodeEditor;
   let model: editor.ITextModel;
   let monaco: any;
+  let workerUrls: string[] = []; // Track blob URLs for cleanup
 
   const defaultOptions: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
@@ -38,11 +143,46 @@
   };
 
   onMount(async () => {
-    // Set Monaco Editor loader configuration to use self-hosted assets
+    // Configure Monaco Environment for Vite - use local static workers to avoid CORS
     if (typeof window !== 'undefined') {
       window.MonacoEnvironment = {
-        getWorkerUrl: function (workerId, label) {
-          return `/monaco/vs/base/worker/workerMain.js`;
+        getWorkerUrl: function (moduleId, label) {
+          // Use local static files served by Vite to avoid CORS issues
+          const staticBase = '/monaco/vs';
+          
+          switch (label) {
+            case 'json':
+              return `${staticBase}/language/json/jsonWorker.js`;
+            case 'css':
+            case 'scss':
+            case 'less':
+              return `${staticBase}/language/css/cssWorker.js`;
+            case 'html':
+            case 'handlebars':
+            case 'razor':
+              return `${staticBase}/language/html/htmlWorker.js`;
+            case 'typescript':
+            case 'javascript':
+              return `${staticBase}/language/typescript/tsWorker.js`;
+            default:
+              return `${staticBase}/base/worker/workerMain.js`;
+          }
+        },
+        // Alternative worker creation method with explicit blob URLs for better compatibility
+        getWorker: function(moduleId, label) {
+          const workerUrl = this.getWorkerUrl(moduleId, label);
+          
+          // Create worker with better error handling and CORS compatibility
+          try {
+            return new Worker(workerUrl, {
+              name: `monaco-${label}-worker`,
+              type: 'classic'
+            });
+          } catch (error) {
+            console.warn(`Failed to create worker for ${label}, falling back to main thread:`, error);
+            // Return null to fallback to main thread execution
+            return null;
+          }
         }
       };
     }
@@ -151,6 +291,11 @@
       if (newValue !== value) {
         value = newValue;
         dispatch('change', { value: newValue });
+        
+        // Schedule validation if enabled
+        if (enableValidation) {
+          scheduleValidation(newValue);
+        }
       }
     });
 
@@ -169,9 +314,15 @@
   });
 
   onDestroy(() => {
+    if (validationTimeout) {
+      clearTimeout(validationTimeout);
+    }
     if (editor) {
       editor.dispose();
     }
+    // Clean up blob URLs to prevent memory leaks
+    workerUrls.forEach(url => URL.revokeObjectURL(url));
+    workerUrls = [];
   });
 
   // Update editor value when prop changes

@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { datasetApi, ApiError } from '../../lib/api/client.js';
+  import DatasetUploader from '../../lib/components/DatasetUploader.svelte';
   import type { Dataset } from '../../lib/api/types.js';
   
   let datasets: Dataset[] = [];
   let loading = true;
   let error: string | null = null;
+  let showUploader = false;
 
   onMount(async () => {
     try {
@@ -28,6 +30,23 @@
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   };
+
+  const handleDatasetUploaded = async (event: CustomEvent<Dataset>) => {
+    const newDataset = event.detail;
+    datasets = [...datasets, newDataset];
+    showUploader = false;
+    
+    // Refresh the full list to ensure consistency
+    try {
+      datasets = await datasetApi.list();
+    } catch (err) {
+      console.warn('Failed to refresh dataset list:', err);
+    }
+  };
+
+  const handleUploadError = (event: CustomEvent<string>) => {
+    console.error('Upload error:', event.detail);
+  };
 </script>
 
 <svelte:head>
@@ -41,13 +60,30 @@
       <p class="text-base-content/70 mt-1">Available market data for backtesting</p>
     </div>
     
-    <button class="btn btn-primary" disabled>
+    <button 
+      class="btn btn-primary" 
+      on:click={() => showUploader = !showUploader}
+    >
       <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
       </svg>
-      Upload Dataset
+      {showUploader ? 'Cancel Upload' : 'Upload Dataset'}
     </button>
   </div>
+
+  <!-- Upload Section -->
+  {#if showUploader}
+    <div class="mb-8">
+      <div class="card bg-base-100 shadow-lg">
+        <div class="card-body">
+          <DatasetUploader 
+            on:uploaded={handleDatasetUploaded}
+            on:error={handleUploadError}
+          />
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if error}
     <div class="alert alert-error">
@@ -86,7 +122,12 @@
       </div>
       <h3 class="text-xl font-semibold text-base-content mb-2">No datasets available</h3>
       <p class="text-base-content/70 mb-4">Upload market data files to start backtesting strategies.</p>
-      <button class="btn btn-primary" disabled>Upload First Dataset</button>
+      <button 
+        class="btn btn-primary" 
+        on:click={() => showUploader = true}
+      >
+        Upload First Dataset
+      </button>
     </div>
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -106,7 +147,7 @@
               
               <div class="flex justify-between">
                 <span class="text-base-content/70">Rows:</span>
-                <span class="font-mono">{dataset.rows.toLocaleString()}</span>
+                <span class="font-mono">{dataset.rowCount.toLocaleString()}</span>
               </div>
               
               <div class="flex justify-between">
@@ -115,8 +156,8 @@
               </div>
               
               <div class="flex justify-between">
-                <span class="text-base-content/70">Modified:</span>
-                <span class="text-xs">{new Date(dataset.lastModified).toLocaleDateString()}</span>
+                <span class="text-base-content/70">Uploaded:</span>
+                <span class="text-xs">{new Date(dataset.uploadedAt).toLocaleDateString()}</span>
               </div>
             </div>
             

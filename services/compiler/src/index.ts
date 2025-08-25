@@ -1,21 +1,28 @@
 import { YAMLParser } from './parsers/yamlParser.js';
 import { PipelineValidator } from './validators/pipelineValidator.js';
+import { EnhancedValidator } from './validators/enhancedValidator.js';
 import { 
   PipelineDSL, 
   CompiledPipeline, 
   CompiledNode, 
   CompilationResult,
-  ValidationError 
+  ValidationError,
+  PipelineIR,
+  IRNode,
+  IRDependency
 } from './types.js';
+import { ValidationReport } from './types/validationTypes.js';
 import { getNodeOutputSchema } from './schemas/nodeSchemas.js';
 
 export class PipelineCompiler {
-  private parser: YAMLParser;
+  public parser: YAMLParser;
   private validator: PipelineValidator;
+  public enhancedValidator: EnhancedValidator;
   
   constructor() {
     this.parser = new YAMLParser();
     this.validator = new PipelineValidator();
+    this.enhancedValidator = new EnhancedValidator();
   }
   
   compile(dslContent: string): CompilationResult {
@@ -33,7 +40,7 @@ export class PipelineCompiler {
     
     const pipeline = parseResult.pipeline!;
     
-    // Step 2: Validate pipeline
+    // Step 2: Validate pipeline using enhanced validator
     const validationErrors = this.validator.validate(pipeline);
     if (validationErrors.length > 0) {
       return {
@@ -57,6 +64,47 @@ export class PipelineCompiler {
         errors: [{
           type: 'semantic',
           message: `Compilation error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        }]
+      };
+    }
+  }
+  
+  compileToIR(dslContent: string, pipelineId: string = 'pipeline', pipelineName?: string, pipelineDescription?: string): { success: boolean; ir?: PipelineIR; errors?: ValidationError[] } {
+    const errors: ValidationError[] = [];
+    
+    // Step 1: Parse DSL
+    const parseResult = this.parser.parse(dslContent);
+    if (parseResult.errors) {
+      return {
+        success: false,
+        errors: parseResult.errors
+      };
+    }
+    
+    const pipeline = parseResult.pipeline!;
+    
+    // Step 2: Validate pipeline
+    const validationErrors = this.validator.validate(pipeline);
+    if (validationErrors.length > 0) {
+      return {
+        success: false,
+        errors: validationErrors
+      };
+    }
+    
+    // Step 3: Generate JSON IR
+    try {
+      const ir = this.generateIR(pipeline, pipelineId, pipelineName, pipelineDescription);
+      return {
+        success: true,
+        ir
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [{
+          type: 'semantic',
+          message: `IR generation error: ${error instanceof Error ? error.message : 'Unknown error'}`
         }]
       };
     }
@@ -189,6 +237,83 @@ export class PipelineCompiler {
     
     return schemas[nodeType] || {};
   }
+  
+  private generateIR(pipeline: PipelineDSL, pipelineId: string, pipelineName?: string, pipelineDescription?: string): PipelineIR {
+    // Build execution order
+    const executionOrder = this.topologicalSort(pipeline);
+    
+    // Generate IR nodes
+    const irNodes: IRNode[] = pipeline.pipeline.map(node => {
+      return {
+        id: node.id,
+        type: node.type,
+        runtime: this.determineRuntime(node.type),
+        parameters: node.params || {},
+        inputSchema: this.getInputSchema(node.type),
+        outputSchema: getNodeOutputSchema(node.type, node.params),
+        metadata: {
+          description: `${node.type} node processing pipeline data`,
+          tags: [node.type, this.determineRuntime(node.type)]
+        }
+      };
+    });
+    
+    // Generate dependency edges
+    const dependencies: IRDependency[] = [];
+    pipeline.pipeline.forEach(node => {
+      (node.depends_on || []).forEach(depId => {
+        dependencies.push({
+          from: depId,
+          to: node.id,
+          type: 'data',
+          dataType: this.inferDataType(depId, node.id, pipeline)
+        });
+      });
+    });
+    
+    // Check for circular dependencies
+    const hasCircularDependencies = this.hasCircularDeps(pipeline);
+    
+    return {
+      id: pipelineId,
+      name: pipelineName,
+      description: pipelineDescription,
+      version: '1.0.0',
+      metadata: {
+        compiledAt: new Date().toISOString(),
+        compiler: 'EdgeQL Pipeline Compiler v0.1.0',
+        totalNodes: pipeline.pipeline.length,
+        hasCircularDependencies
+      },
+      nodes: irNodes,
+      dependencies,
+      executionOrder
+    };
+  }
+  
+  private inferDataType(fromNodeId: string, toNodeId: string, pipeline: PipelineDSL): string {
+    const fromNode = pipeline.pipeline.find(n => n.id === fromNodeId);
+    if (!fromNode) return 'unknown';
+    
+    // Map node types to their output data types
+    const dataTypes: Record<string, string> = {
+      'DataLoaderNode': 'dataframe',
+      'IndicatorNode': 'dataframe',
+      'CrossoverSignalNode': 'signals',
+      'BacktestNode': 'backtest_results'
+    };
+    
+    return dataTypes[fromNode.type] || 'unknown';
+  }
+  
+  private hasCircularDeps(pipeline: PipelineDSL): boolean {
+    try {
+      this.topologicalSort(pipeline);
+      return false;
+    } catch (error) {
+      return error instanceof Error && error.message.includes('Circular dependency');
+    }
+  }
 }
 
 // CLI interface for testing
@@ -197,5 +322,60 @@ export function compileFromString(dslContent: string): CompilationResult {
   return compiler.compile(dslContent);
 }
 
+// Enhanced validation interface
+export function validateFromString(dslContent: string): ValidationReport {
+  return validatePipelineDetailed(dslContent);
+}
+
+/**
+ * Enhanced validation with detailed error reporting
+ */
+export function validatePipelineDetailed(dslContent: string): ValidationReport {
+  const compiler = new PipelineCompiler();
+  
+  // Parse DSL first
+  const parseResult = compiler.parser.parse(dslContent);
+  if (parseResult.errors) {
+    // Convert parse errors to validation report format
+    const report: ValidationReport = {
+      valid: false,
+      errors: parseResult.errors.map(error => ({
+        id: `PARSE_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        type: 'syntax',
+        severity: 'error',
+        message: error.message,
+        context: {
+          ...(error.line && { lineNumber: error.line }),
+          ...(error.column && { columnNumber: error.column })
+        },
+        details: {
+          category: 'syntax_error',
+          code: 'PARSE_ERROR'
+        },
+        help: {
+          summary: 'DSL parsing failed',
+          suggestions: []
+        }
+      })),
+      warnings: [],
+      summary: {
+        totalIssues: parseResult.errors.length,
+        errorCount: parseResult.errors.length,
+        warningCount: 0,
+        nodesValidated: 0,
+        validationTimeMs: 0
+      },
+      errorsByNode: {},
+      errorsByType: {},
+      quickFixes: []
+    };
+    return report;
+  }
+  
+  // Use enhanced validation
+  return compiler.enhancedValidator.validatePipeline(parseResult.pipeline!);
+}
+
 // Export types
 export * from './types.js';
+export * from './types/validationTypes.js';

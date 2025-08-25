@@ -14,8 +14,32 @@ export class NodejsSandboxRunner implements NodeRunner {
     'ValidationNode'
   ];
   
+  // Track running containers by runId for cancellation
+  private runningContainers = new Map<string, string>();
+  
   canHandle(nodeType: string): boolean {
     return this.nodejsNodes.includes(nodeType);
+  }
+  
+  async cancel(runId: string): Promise<void> {
+    const containerName = this.runningContainers.get(runId);
+    if (containerName) {
+      try {
+        // Kill the container
+        const killProcess = spawn('docker', ['kill', containerName], { stdio: 'pipe' });
+        await new Promise((resolve) => {
+          killProcess.on('close', resolve);
+          killProcess.on('error', resolve);
+          // Force resolve after 5 seconds
+          setTimeout(resolve, 5000);
+        });
+        
+        // Remove from tracking
+        this.runningContainers.delete(runId);
+      } catch (error) {
+        console.warn(`Failed to kill container ${containerName}:`, error);
+      }
+    }
   }
   
   async execute(
@@ -31,6 +55,17 @@ export class NodejsSandboxRunner implements NodeRunner {
     
     try {
       logs.push(`Executing Node.js node: ${nodeType} (${nodeId}) in sandbox`);
+      
+      // Check if execution is already cancelled
+      if (context.cancelled) {
+        return {
+          success: false,
+          nodeId,
+          error: 'Execution was cancelled',
+          logs: [...logs, 'Execution cancelled before starting'],
+          executionTime: Date.now() - startTime
+        };
+      }
       
       // Create temporary directories for this execution
       const tempDir = path.join(tmpdir(), 'edgeql-execution', executionId);
@@ -65,7 +100,9 @@ export class NodejsSandboxRunner implements NodeRunner {
         inputFile,
         outputFile,
         tempDir,
-        logs
+        logs,
+        context.runId,
+        context
       );
       
       if (!result.success) {
@@ -130,10 +167,15 @@ export class NodejsSandboxRunner implements NodeRunner {
     inputFile: string,
     outputFile: string,
     tempDir: string,
-    logs: string[]
+    logs: string[],
+    runId: string,
+    context: ExecutionContext
   ): Promise<{ success: boolean; error?: string; memoryUsage?: number }> {
     return new Promise((resolve) => {
       const containerName = `edgeql-nodejs-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      
+      // Track this container for potential cancellation
+      this.runningContainers.set(runId, containerName);
       
       // Convert Windows paths to Docker-compatible format
       const dockerTempDir = this.convertToDockerPath(tempDir);
@@ -190,6 +232,9 @@ export class NodejsSandboxRunner implements NodeRunner {
       });
       
       dockerProcess.on('close', (code) => {
+        // Clean up container tracking
+        this.runningContainers.delete(runId);
+        
         logs.push(`Docker container exited with code: ${code}`);
         
         if (stdout) {
@@ -200,11 +245,26 @@ export class NodejsSandboxRunner implements NodeRunner {
           logs.push(`Container stderr: ${stderr.trim()}`);
         }
         
+        // Check if the run was cancelled during execution
+        if (context.cancelled) {
+          resolve({ 
+            success: false, 
+            error: 'Execution was cancelled' 
+          });
+          return;
+        }
+        
         if (code === 0) {
           const memUsage = this.parseMemoryUsage(stderr);
           resolve({ 
             success: true,
             ...(memUsage !== undefined && { memoryUsage: memUsage })
+          });
+        } else if (code === 137) {
+          // Exit code 137 typically means SIGKILL (likely from cancellation)
+          resolve({ 
+            success: false, 
+            error: 'Container was killed (likely cancelled)' 
           });
         } else {
           resolve({ 
@@ -215,6 +275,9 @@ export class NodejsSandboxRunner implements NodeRunner {
       });
       
       dockerProcess.on('error', (error) => {
+        // Clean up container tracking
+        this.runningContainers.delete(runId);
+        
         logs.push(`Docker execution error: ${error.message}`);
         resolve({ 
           success: false, 
@@ -223,14 +286,22 @@ export class NodejsSandboxRunner implements NodeRunner {
       });
       
       // Handle timeout
-      setTimeout(() => {
-        logs.push(`Container execution timeout - killing ${containerName}`);
-        spawn('docker', ['kill', containerName]);
-        resolve({ 
-          success: false, 
-          error: 'Execution timeout (30 seconds)' 
-        });
+      const timeoutId = setTimeout(() => {
+        if (this.runningContainers.has(runId)) {
+          logs.push(`Container execution timeout - killing ${containerName}`);
+          spawn('docker', ['kill', containerName]);
+          this.runningContainers.delete(runId);
+          resolve({ 
+            success: false, 
+            error: 'Execution timeout (30 seconds)' 
+          });
+        }
       }, 30000);
+      
+      // Clear timeout if process completes normally
+      dockerProcess.on('close', () => {
+        clearTimeout(timeoutId);
+      });
     });
   }
   

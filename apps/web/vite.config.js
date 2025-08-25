@@ -3,7 +3,9 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import svelteConfig from './svelte.config.vite.js';
 
 export default defineConfig({
-  plugins: [svelte(svelteConfig)],
+  plugins: [
+    svelte(svelteConfig)
+  ],
   root: '.',
   publicDir: 'static',
   build: {
@@ -17,14 +19,19 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['monaco-editor'],
+    // Exclude monaco-editor from dependency optimization to avoid issues
+    exclude: ['monaco-editor'],
+    include: []
   },
   define: {
     global: 'globalThis',
   },
   worker: {
     format: 'es',
-    plugins: () => []
+    plugins: () => [],
+    rollupOptions: {
+      external: ['monaco-editor']
+    }
   },
   server: {
     host: '0.0.0.0',
@@ -40,5 +47,6 @@ export default defineConfig({
         changeOrigin: true
       }
     }
-  }
+  },
+  assetsInclude: ['**/*.wasm']
 });

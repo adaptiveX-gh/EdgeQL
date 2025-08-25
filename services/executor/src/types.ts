@@ -4,6 +4,7 @@ export interface ExecutionContext {
   workingDir: string;
   artifacts: Map<string, any>;
   datasets: Map<string, string>; // dataset name -> file path
+  cancelled?: boolean; // Add cancellation flag
 }
 
 export interface ExecutionResult {
@@ -25,6 +26,7 @@ export interface NodeRunner {
     inputs: Map<string, any>,
     context: ExecutionContext
   ): Promise<ExecutionResult>;
+  cancel?(runId: string): Promise<void>; // Optional cancel method for cleanup
 }
 
 export interface PipelineExecutionResult {
@@ -34,4 +36,5 @@ export interface PipelineExecutionResult {
   totalExecutionTime: number;
   finalOutputs: Map<string, any>;
   error?: string;
+  cancelled?: boolean; // Add cancelled flag
 }

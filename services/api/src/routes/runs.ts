@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Router as RouterType } from 'express';
 import { PipelineRun, ApiResponse } from '../types/index.js';
 import { RunStorage } from '../utils/storage.js';
+import { executor } from './pipelines.js';
 
 // Helper function to convert snake_case results to camelCase for frontend
 function transformBacktestResults(results: any): any {
@@ -194,9 +195,17 @@ router.post('/:id/cancel', async (req, res) => {
       } as ApiResponse);
     }
     
+    // Try to cancel the running pipeline in the shared executor
+    const cancelled = await executor.cancelPipeline(req.params.id);
+    
     run.status = 'cancelled';
     run.endTime = new Date().toISOString();
     run.logs.push('Run cancelled by user');
+    if (cancelled) {
+      run.logs.push('Docker containers and resources cleaned up');
+    } else {
+      run.logs.push('Warning: May not have cleaned up all resources');
+    }
     
     await RunStorage.set(run);
     

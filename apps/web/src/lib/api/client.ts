@@ -2,7 +2,8 @@ import type {
   Pipeline, 
   PipelineRun, 
   ApiResponse, 
-  Dataset 
+  Dataset,
+  PipelineIR
 } from './types.js';
 
 // Base API configuration
@@ -97,6 +98,20 @@ export const pipelineApi = {
   async getRuns(id: string): Promise<PipelineRun[]> {
     return fetchApi<PipelineRun[]>(`/pipelines/${id}/runs`);
   },
+
+  async validate(dsl: string): Promise<{ valid: boolean; errors?: any[]; warnings?: string[] }> {
+    return fetchApi<{ valid: boolean; errors?: any[]; warnings?: string[] }>('/pipelines/validate', {
+      method: 'POST',
+      body: JSON.stringify({ dsl }),
+    });
+  },
+
+  async compile(id: string, dsl?: string): Promise<PipelineIR> {
+    return fetchApi<PipelineIR>(`/pipelines/${id}/compile`, {
+      method: 'POST',
+      body: JSON.stringify({ dsl }),
+    });
+  },
 };
 
 // Run API methods
@@ -128,6 +143,51 @@ export const datasetApi = {
 
   async get(name: string): Promise<Dataset> {
     return fetchApi<Dataset>(`/datasets/${name}`);
+  },
+
+  async upload(file: File): Promise<Dataset> {
+    const formData = new FormData();
+    formData.append('dataset', file);
+
+    const response = await fetch(`${API_BASE}/datasets/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const contentType = response.headers.get('content-type');
+    const isJson = contentType?.includes('application/json');
+    
+    if (!isJson) {
+      throw new ApiError(
+        response.status,
+        response.ok ? 'Unexpected response format' : `Server returned ${response.status}: ${response.statusText}`,
+        { status: response.status }
+      );
+    }
+    
+    const data: ApiResponse<Dataset> = await response.json();
+
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        data.error || `HTTP ${response.status}`,
+        data
+      );
+    }
+
+    if (!data.success) {
+      throw new ApiError(
+        response.status,
+        data.error || 'Upload failed',
+        data
+      );
+    }
+
+    return data.data!;
+  },
+
+  async preview(id: string): Promise<any[]> {
+    return fetchApi<any[]>(`/datasets/${id}/preview`);
   },
 };
 

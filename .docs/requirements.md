@@ -858,36 +858,43 @@ Acceptance:
 Given invalid DSL
 When I type a malformed node block
 Then I see inline errors and a panel entry with line/column
+
 As a developer, I get semantic validation for node references, params, and type compatibility.
 Acceptance:
 Given a pipeline referencing unknown node types or missing params
 When I validate or try to run
 Then I see specific semantic errors with node IDs and fields
+
 As a developer, the DSL compiles to an IR (JSON graph) visible in a “Compiled” tab.
 Acceptance:
 Given valid DSL
 When compiled
 Then I can view the JSON IR listing nodes, params, and depends_on links
+
 As a developer, I can see an equity curve chart for completed runs.
 Acceptance:
 Given a completed run with equity/time series
 When I open results
 Then I see an interactive line chart (hover values, simple zoom or toggle)
+
 As a developer, I can cancel a running pipeline.
 Acceptance:
 Given a running run
 When I click Cancel
 Then the run stops and the status is Canceled, no further charges to metrics
+
 As a developer, I can see a run history per pipeline and open prior results.
 Acceptance:
 Given multiple past runs
 When I open Run History
 Then I see timestamped runs, status, summary metrics preview, and can open details
+
 As a developer, I can upload a CSV dataset and select it in the DSL via a friendly picker.
 Acceptance:
 Given a CSV upload UI
 When I upload valid OHLCV data
 Then I can reference it in the DSL (or choose from a dataset dropdown) and run successfully
+
 Demo: Show invalid DSL feedback → fix and compile → run → cancel demo → run to completion → show equity chart and open a previous run from history → upload CSV and rerun.
 
 Sprint 3 – Custom JS nodes and safe execution
@@ -900,41 +907,49 @@ Acceptance:
 Given a Node Library
 When I click New Node (JS)
 Then a template with a run(input) signature opens, I can save with a name, and it’s listed
+
 As a developer, I can add my custom JS node to a pipeline via DSL and run end-to-end.
 Acceptance:
 Given a custom node
 When I reference it in DSL and run
 Then the engine executes it and its output impacts downstream results
+
 As an admin/developer, custom JS node execution is sandboxed with CPU/memory/time limits.
 Acceptance:
 Given a node with an infinite loop or heavy memory allocation
 When I run
 Then execution is terminated per timeout/memory threshold and the UI shows a controlled error
+
 As a developer, I can see console/log output from a custom node in run logs.
 Acceptance:
 Given a custom node that logs progress
 When I run
 Then the logs panel shows the node’s log lines tagged by node ID
+
 As a developer, I can version pipeline definitions and restore a prior version.
 Acceptance:
 Given multiple saves
 When I open Version History
 Then I can diff titles/timestamps and restore a prior version which loads in the editor
+
 As a developer, I can duplicate a pipeline to fork experiments.
 Acceptance:
 Given a pipeline
 When I click Duplicate
 Then a new pipeline is created with the same DSL and assets, editable independently
+
 As an observer, I can open read-only DSL and results (UI enforces read-only).
 Acceptance:
 Given an observer link
 When I open the pipeline page
 Then the editor is non-editable; Run button hidden; results viewable
+
 As a developer, I can export a run’s artifacts (CSV of trades, metrics JSON).
 Acceptance:
 Given a completed run
 When I click Export
 Then I download trades.csv and metrics.json reflecting that run
+
 Demo: Create a custom JS node → reference in DSL → run safely (show logs and limits) → show pipeline versioning → export artifacts and open read-only link.
 
 Post-MVP (backlog candidates)

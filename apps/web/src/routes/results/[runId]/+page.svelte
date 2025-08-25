@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import { runApi, pipelineApi, ApiError } from '$lib/api/client.js';
   import type { PipelineRun, Pipeline } from '$lib/api/types.js';
-  import PerformanceChart from '$lib/charts/PerformanceChart.svelte';
+  import EquityCurveChart from '$lib/charts/EquityCurveChart.svelte';
   
   let runId = $page.params.runId;
   let run: PipelineRun | null = null;
@@ -12,6 +12,7 @@
   let error: string | null = null;
   let showToast = false;
   let toastMessage = '';
+  let cancelling = false;
   
   // Check if this is a shared/read-only view
   $: isSharedView = $page.url.searchParams.has('share');
@@ -88,6 +89,37 @@
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const cancelRun = async () => {
+    if (!run) return;
+    
+    try {
+      cancelling = true;
+      await runApi.cancel(run.id);
+      
+      showToast = true;
+      toastMessage = 'Run cancelled successfully!';
+      setTimeout(() => {
+        showToast = false;
+        // Reload the run to get updated status
+        window.location.reload();
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to cancel run:', err);
+      if (err instanceof ApiError) {
+        showToast = true;
+        toastMessage = `Failed to cancel run: ${err.message}`;
+      } else {
+        showToast = true;
+        toastMessage = 'Failed to cancel run. Please try again.';
+      }
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    } finally {
+      cancelling = false;
+    }
+  };
 </script>
 
 <svelte:head>
@@ -138,6 +170,24 @@
       </div>
       
       <div class="flex gap-3">
+        {#if run?.status === 'running' || run?.status === 'pending'}
+          <button 
+            class="btn btn-error btn-sm" 
+            disabled={cancelling}
+            on:click={cancelRun}
+          >
+            {#if cancelling}
+              <span class="loading loading-spinner loading-xs mr-2"></span>
+              Cancelling...
+            {:else}
+              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+              Cancel Run
+            {/if}
+          </button>
+        {/if}
+        
         {#if !isSharedView}
           <button class="btn btn-ghost btn-sm" on:click={copyLink}>
             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -319,29 +369,33 @@
       </div>
     {/if}
 
-    <!-- Performance Charts -->
-    <div class="card bg-base-100 shadow-lg">
-      <div class="card-body">
-        <h3 class="card-title">Performance Charts</h3>
-        {#if run?.results}
-          <PerformanceChart 
-            equityCurve={run.results.equityCurve || []} 
-            trades={run.results.trades || []}
-            title="Portfolio Performance"
-            height="400px"
-          />
-        {:else}
-          <div class="flex items-center justify-center h-64 bg-base-200 rounded">
-            <div class="text-center">
-              <svg class="w-16 h-16 mx-auto text-base-content/30 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-              </svg>
-              <h4 class="text-lg font-semibold mb-2">No Chart Data</h4>
-              <p class="text-base-content/70">No performance data available for this run.</p>
+    <!-- Interactive Equity Curve Chart -->
+    <div class="mb-8">
+      <h3 class="text-2xl font-bold text-base-content mb-4">Portfolio Performance</h3>
+      {#if run?.results && run.results.equityCurve}
+        <EquityCurveChart 
+          equityCurve={run.results.equityCurve} 
+          trades={run.results.trades || []}
+          title="Interactive Equity Curve"
+          height="500px"
+          showDrawdown={true}
+          showTrades={true}
+        />
+      {:else}
+        <div class="card bg-base-100 shadow-lg">
+          <div class="card-body">
+            <div class="flex items-center justify-center h-64 bg-base-200 rounded">
+              <div class="text-center">
+                <svg class="w-16 h-16 mx-auto text-base-content/30 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                <h4 class="text-lg font-semibold mb-2">No Chart Data</h4>
+                <p class="text-base-content/70">No equity curve data available for this run.</p>
+              </div>
             </div>
           </div>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

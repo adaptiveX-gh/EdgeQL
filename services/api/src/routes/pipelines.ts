@@ -2,13 +2,18 @@ import { Router } from 'express';
 import type { Router as RouterType } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { PipelineExecutor } from '@edgeql/executor';
+import { PipelineCompiler } from '@edgeql/compiler';
 import { Pipeline, PipelineRun, ApiResponse } from '../types/index.js';
 import { PipelineStorage, RunStorage } from '../utils/storage.js';
 
 const router: RouterType = Router();
 
-// Initialize executor
+// Initialize executor and compiler as singletons
 const executor = new PipelineExecutor();
+const compiler = new PipelineCompiler();
+
+// Export the executor instance for use by other routes
+export { executor };
 
 // Initialize sample pipeline on first load
 const initializeSampleData = async () => {
@@ -105,6 +110,49 @@ router.get('/:id', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve pipeline'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/validate - Validate DSL content
+router.post('/validate', async (req, res) => {
+  const { dsl } = req.body;
+  
+  if (!dsl || typeof dsl !== 'string') {
+    return res.status(400).json({
+      success: false,
+      error: 'DSL content is required'
+    } as ApiResponse);
+  }
+  
+  try {
+    const result = compiler.compile(dsl);
+    
+    if (result.success) {
+      const response: ApiResponse<{ valid: true, warnings?: string[] }> = {
+        success: true,
+        data: { 
+          valid: true,
+          ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {})
+        }
+      };
+      return res.json(response);
+    } else {
+      // Return validation errors without failing the HTTP request
+      const response: ApiResponse<{ valid: false, errors: any[] }> = {
+        success: true,
+        data: { 
+          valid: false,
+          errors: result.errors || []
+        }
+      };
+      return res.json(response);
+    }
+  } catch (error) {
+    console.error('DSL validation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to validate DSL'
     } as ApiResponse);
   }
 });
@@ -251,6 +299,51 @@ router.get('/:id/runs', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve pipeline runs'
+    } as ApiResponse);
+  }
+});
+
+// POST /api/pipelines/:id/compile - Compile pipeline to JSON IR
+router.post('/:id/compile', async (req, res) => {
+  const pipelineId = req.params.id;
+  const { dsl } = req.body;
+  
+  try {
+    const pipeline = await PipelineStorage.get(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pipeline not found'
+      } as ApiResponse);
+    }
+    
+    // Use the actual DSL content from request or pipeline
+    const dslToCompile = dsl || pipeline.dsl;
+    
+    // Compile to JSON IR
+    const result = compiler.compileToIR(dslToCompile, pipelineId, pipeline.name, pipeline.description);
+    
+    if (result.success && result.ir) {
+      const response: ApiResponse<any> = {
+        success: true,
+        data: result.ir,
+        message: 'Pipeline compiled to JSON IR successfully'
+      };
+      return res.json(response);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Compilation failed',
+        data: result.errors
+      } as ApiResponse);
+    }
+    
+  } catch (error) {
+    console.error('Pipeline compilation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to compile pipeline',
+      details: error instanceof Error ? error.message : 'Unknown error'
     } as ApiResponse);
   }
 });

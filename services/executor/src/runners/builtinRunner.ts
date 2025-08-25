@@ -26,6 +26,17 @@ export class BuiltinNodeRunner implements NodeRunner {
     try {
       logs.push(`Executing builtin node: ${nodeType} (${nodeId})`);
       
+      // Check if execution is already cancelled
+      if (context.cancelled) {
+        return {
+          success: false,
+          nodeId,
+          error: 'Execution was cancelled',
+          logs: [...logs, 'Execution cancelled before starting'],
+          executionTime: Date.now() - startTime
+        };
+      }
+      
       let output: any;
       
       switch (nodeType) {

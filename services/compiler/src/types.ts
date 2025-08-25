@@ -19,6 +19,44 @@ export interface CompiledPipeline {
   };
 }
 
+// JSON IR schema for the execution graph
+export interface PipelineIR {
+  id: string;
+  name?: string | undefined;
+  description?: string | undefined;
+  version: string;
+  metadata: {
+    compiledAt: string;
+    compiler: string;
+    totalNodes: number;
+    hasCircularDependencies: boolean;
+  };
+  nodes: IRNode[];
+  dependencies: IRDependency[];
+  executionOrder: string[];
+}
+
+export interface IRNode {
+  id: string;
+  type: string;
+  runtime: 'builtin' | 'javascript' | 'python' | 'wasm';
+  parameters: Record<string, any>;
+  inputSchema: Record<string, any>;
+  outputSchema: Record<string, any>;
+  metadata: {
+    position?: { x: number; y: number };
+    description?: string;
+    tags?: string[];
+  };
+}
+
+export interface IRDependency {
+  from: string;
+  to: string;
+  type: 'data' | 'control';
+  dataType?: string;
+}
+
 export interface CompiledNode {
   id: string;
   type: string;
@@ -32,10 +70,10 @@ export interface CompiledNode {
 export interface ValidationError {
   type: 'syntax' | 'semantic' | 'schema';
   message: string;
-  node?: string;
-  field?: string;
-  line?: number;
-  column?: number;
+  node?: string | undefined;
+  field?: string | undefined;
+  line?: number | undefined;
+  column?: number | undefined;
 }
 
 export interface CompilationResult {
