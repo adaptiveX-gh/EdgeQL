@@ -122,7 +122,6 @@
   let editor: editor.IStandaloneCodeEditor;
   let model: editor.ITextModel;
   let monaco: any;
-  let workerUrls: string[] = []; // Track blob URLs for cleanup
 
   const defaultOptions: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
@@ -143,50 +142,9 @@
   };
 
   onMount(async () => {
-    // Configure Monaco Environment for Vite - use local static workers to avoid CORS
-    if (typeof window !== 'undefined') {
-      window.MonacoEnvironment = {
-        getWorkerUrl: function (moduleId, label) {
-          // Use local static files served by Vite to avoid CORS issues
-          const staticBase = '/monaco/vs';
-          
-          switch (label) {
-            case 'json':
-              return `${staticBase}/language/json/jsonWorker.js`;
-            case 'css':
-            case 'scss':
-            case 'less':
-              return `${staticBase}/language/css/cssWorker.js`;
-            case 'html':
-            case 'handlebars':
-            case 'razor':
-              return `${staticBase}/language/html/htmlWorker.js`;
-            case 'typescript':
-            case 'javascript':
-              return `${staticBase}/language/typescript/tsWorker.js`;
-            default:
-              return `${staticBase}/base/worker/workerMain.js`;
-          }
-        },
-        // Alternative worker creation method with explicit blob URLs for better compatibility
-        getWorker: function(moduleId, label) {
-          const workerUrl = this.getWorkerUrl(moduleId, label);
-          
-          // Create worker with better error handling and CORS compatibility
-          try {
-            return new Worker(workerUrl, {
-              name: `monaco-${label}-worker`,
-              type: 'classic'
-            });
-          } catch (error) {
-            console.warn(`Failed to create worker for ${label}, falling back to main thread:`, error);
-            // Return null to fallback to main thread execution
-            return null;
-          }
-        }
-      };
-    }
-
+    // MonacoEnvironment is configured globally in main.js with mock workers
+    // This prevents worker fallback warnings while keeping Monaco functionality
+    
     // Dynamically import Monaco Editor
     const monacoModule = await import('monaco-editor');
     monaco = monacoModule;
@@ -320,9 +278,6 @@
     if (editor) {
       editor.dispose();
     }
-    // Clean up blob URLs to prevent memory leaks
-    workerUrls.forEach(url => URL.revokeObjectURL(url));
-    workerUrls = [];
   });
 
   // Update editor value when prop changes

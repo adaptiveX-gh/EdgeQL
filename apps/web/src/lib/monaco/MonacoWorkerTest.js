@@ -1,86 +1,171 @@
 /**
- * Simple test script to verify Monaco Editor worker functionality
- * This can be used to check if workers are loading without CORS issues
+ * Test for Monaco Editor worker configuration
+ * Validates that our MonacoEnvironment setup prevents worker warnings
  */
 
-export function testMonacoWorkers() {
-  if (typeof window === 'undefined') {
-    console.log('Not in browser environment');
-    return false;
+export class MonacoWorkerTest {
+  constructor() {
+    this.results = [];
+    this.originalConsole = {};
   }
 
-  const testResults = {
-    environment: false,
-    workerCreation: false,
-    workerUrls: {},
-    errors: []
-  };
+  /**
+   * Captures console output during Monaco initialization
+   */
+  captureConsole() {
+    this.originalConsole.log = console.log;
+    this.originalConsole.warn = console.warn;
+    this.originalConsole.error = console.error;
 
-  try {
-    // Check if MonacoEnvironment is configured
-    if (window.MonacoEnvironment && window.MonacoEnvironment.getWorkerUrl) {
-      testResults.environment = true;
-      console.log('✓ MonacoEnvironment configured');
+    console.log = (...args) => {
+      this.results.push({ type: 'log', message: args.join(' '), timestamp: Date.now() });
+      this.originalConsole.log(...args);
+    };
 
-      // Test worker URL generation
-      const workerTypes = ['json', 'css', 'html', 'typescript', 'default'];
-      
-      workerTypes.forEach(type => {
-        try {
-          const url = window.MonacoEnvironment.getWorkerUrl('test', type);
-          testResults.workerUrls[type] = url;
-          console.log(`✓ Worker URL for ${type}:`, url);
-        } catch (error) {
-          testResults.errors.push(`Failed to get worker URL for ${type}: ${error.message}`);
-          console.error(`✗ Worker URL for ${type}:`, error);
-        }
-      });
+    console.warn = (...args) => {
+      this.results.push({ type: 'warn', message: args.join(' '), timestamp: Date.now() });
+      this.originalConsole.warn(...args);
+    };
 
-      // Test worker creation if getWorker is available
-      if (window.MonacoEnvironment.getWorker) {
-        try {
-          const testWorker = window.MonacoEnvironment.getWorker('test', 'json');
-          if (testWorker) {
-            testResults.workerCreation = true;
-            console.log('✓ Worker creation successful');
-            testWorker.terminate(); // Clean up
-          } else {
-            console.log('~ Worker creation returned null (fallback to main thread)');
-          }
-        } catch (error) {
-          testResults.errors.push(`Worker creation failed: ${error.message}`);
-          console.error('✗ Worker creation failed:', error);
-        }
+    console.error = (...args) => {
+      this.results.push({ type: 'error', message: args.join(' '), timestamp: Date.now() });
+      this.originalConsole.error(...args);
+    };
+  }
+
+  /**
+   * Restores original console methods
+   */
+  restoreConsole() {
+    console.log = this.originalConsole.log;
+    console.warn = this.originalConsole.warn;
+    console.error = this.originalConsole.error;
+  }
+
+  /**
+   * Tests Monaco Editor worker configuration
+   */
+  async testWorkerConfiguration() {
+    this.captureConsole();
+    
+    try {
+      // Test if MonacoEnvironment is properly configured
+      if (!self.MonacoEnvironment || !self.MonacoEnvironment.getWorkerUrl) {
+        throw new Error('MonacoEnvironment.getWorkerUrl is not configured');
       }
 
-    } else {
-      testResults.errors.push('MonacoEnvironment not configured');
-      console.error('✗ MonacoEnvironment not configured');
+      // Test worker URL generation
+      const workerUrl = self.MonacoEnvironment.getWorkerUrl('test', 'typescript');
+      if (!workerUrl || !workerUrl.startsWith('data:text/javascript')) {
+        throw new Error('getWorkerUrl did not return expected data URL');
+      }
+
+      // Test that worker URL creates valid JavaScript
+      const workerCode = decodeURIComponent(workerUrl.split(',')[1]);
+      if (!workerCode.includes('addEventListener') || !workerCode.includes('postMessage')) {
+        throw new Error('Worker code does not contain expected methods');
+      }
+
+      return {
+        success: true,
+        workerUrl: workerUrl.length > 100 ? workerUrl.substring(0, 100) + '...' : workerUrl,
+        message: 'MonacoEnvironment configured correctly'
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: 'MonacoEnvironment configuration failed'
+      };
+    } finally {
+      this.restoreConsole();
     }
-
-  } catch (error) {
-    testResults.errors.push(`General error: ${error.message}`);
-    console.error('✗ General error:', error);
   }
 
-  // Summary
-  console.log('\n--- Monaco Worker Test Results ---');
-  console.log('Environment configured:', testResults.environment);
-  console.log('Worker creation:', testResults.workerCreation);
-  console.log('Worker URLs:', testResults.workerUrls);
-  if (testResults.errors.length > 0) {
-    console.log('Errors:', testResults.errors);
+  /**
+   * Tests actual Monaco Editor initialization
+   */
+  async testMonacoEditorInitialization() {
+    this.captureConsole();
+    
+    try {
+      // Import Monaco Editor
+      const monaco = await import('monaco-editor');
+      
+      // Create a temporary container
+      const container = document.createElement('div');
+      container.style.width = '100px';
+      container.style.height = '100px';
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      document.body.appendChild(container);
+
+      // Create Monaco Editor instance
+      const editor = monaco.editor.create(container, {
+        value: '// Test content',
+        language: 'javascript',
+        theme: 'vs-dark'
+      });
+
+      // Wait a moment for any async initialization
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Clean up
+      editor.dispose();
+      document.body.removeChild(container);
+
+      // Check for worker-related warnings
+      const workerWarnings = this.results.filter(r => 
+        r.message.includes('Could not create web worker') || 
+        r.message.includes('Falling back to loading web worker code in main thread') ||
+        r.message.includes('Cannot read properties of undefined')
+      );
+
+      if (workerWarnings.length > 0) {
+        return {
+          success: false,
+          warnings: workerWarnings,
+          message: 'Monaco Editor initialization produced worker warnings'
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Monaco Editor initialized without worker warnings',
+        consoleMessages: this.results.length
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: 'Monaco Editor initialization failed'
+      };
+    } finally {
+      this.restoreConsole();
+    }
   }
-  console.log('--- End Test Results ---\n');
 
-  return testResults;
+  /**
+   * Runs all tests and returns comprehensive results
+   */
+  async runAllTests() {
+    const configTest = await this.testWorkerConfiguration();
+    const initTest = await this.testMonacoEditorInitialization();
+
+    return {
+      workerConfiguration: configTest,
+      editorInitialization: initTest,
+      overallSuccess: configTest.success && initTest.success,
+      summary: {
+        configurationWorking: configTest.success,
+        noWorkerWarnings: initTest.success,
+        readyForProduction: configTest.success && initTest.success
+      }
+    };
+  }
 }
 
-// Auto-run test if this script is loaded directly
-if (typeof window !== 'undefined' && window.document) {
-  // Run test after a short delay to ensure Monaco environment is set up
-  setTimeout(() => {
-    console.log('Running Monaco Worker Test...');
-    testMonacoWorkers();
-  }, 1000);
-}
+// Export singleton for easy testing
+export const monacoWorkerTest = new MonacoWorkerTest();

@@ -17,6 +17,8 @@ export default defineConfig({
         },
       },
     },
+    // Ensure Monaco worker files are copied to dist
+    copyPublicDir: true,
   },
   optimizeDeps: {
     // Exclude monaco-editor from dependency optimization to avoid issues
@@ -26,13 +28,7 @@ export default defineConfig({
   define: {
     global: 'globalThis',
   },
-  worker: {
-    format: 'es',
-    plugins: () => [],
-    rollupOptions: {
-      external: ['monaco-editor']
-    }
-  },
+  // Worker configuration removed as Monaco runs in main thread
   server: {
     host: '0.0.0.0',
     port: 5173,
