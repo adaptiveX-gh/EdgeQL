@@ -6,6 +6,7 @@
   let pipelines: Pipeline[] = [];
   let loading = true;
   let error: string | null = null;
+  let duplicatingId: string | null = null;
   
   onMount(async () => {
     try {
@@ -21,6 +22,20 @@
       loading = false;
     }
   });
+
+  async function duplicatePipeline(pipeline: Pipeline) {
+    try {
+      duplicatingId = pipeline.id;
+      const copy = await pipelineApi.duplicate(pipeline.id);
+      // Prepend new copy to the list
+      pipelines = [copy, ...pipelines];
+    } catch (err) {
+      console.error('Failed to duplicate pipeline:', err);
+      alert(err instanceof ApiError ? `Duplicate failed: ${err.message}` : 'Failed to duplicate pipeline');
+    } finally {
+      duplicatingId = null;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -87,20 +102,25 @@
             </div>
             
             <div class="card-actions justify-end mt-4">
-              <button 
-                class="btn btn-primary btn-sm" 
-                on:click={() => window.navigate && window.navigate('pipeline-editor', { pipelineId: pipeline.id })}
-              >
+              <a class="btn btn-primary btn-sm" href={`/pipeline/${pipeline.id}`}>
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
                 </svg>
                 Edit
-              </button>
-              <button class="btn btn-ghost btn-sm" disabled>
+              </a>
+              <button 
+                class="btn btn-ghost btn-sm"
+                on:click={() => duplicatePipeline(pipeline)}
+                disabled={!!duplicatingId}
+                title="Duplicate pipeline"
+              >
+                {#if duplicatingId === pipeline.id}
+                  <span class="loading loading-spinner loading-xs mr-1"></span>
+                {/if}
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                 </svg>
-                Copy
+                {duplicatingId === pipeline.id ? 'Copying...' : 'Copy'}
               </button>
             </div>
           </div>

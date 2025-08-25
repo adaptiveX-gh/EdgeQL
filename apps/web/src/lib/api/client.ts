@@ -72,12 +72,14 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     }
     
     // Handle JSON parsing errors more specifically
-    if (error instanceof SyntaxError && error.message.includes('JSON')) {
-      throw new ApiError(0, 'Server returned invalid JSON. Check if the API server is running.', error);
+    if (error instanceof SyntaxError && (error as any).message?.includes?.('JSON')) {
+      throw new ApiError(0, 'Server returned invalid JSON. Check if the API server is running.', error as any);
     }
     
     // Network or other parsing errors
-    throw new ApiError(0, `Network error: ${error.message}`, error);
+    const err: any = error as any;
+    const msg = err?.message ? String(err.message) : String(err);
+    throw new ApiError(0, `Network error: ${msg}`, err);
   }
 }
 
@@ -89,6 +91,12 @@ export const pipelineApi = {
 
   async get(id: string): Promise<Pipeline> {
     return fetchApi<Pipeline>(`/pipelines/${id}`);
+  },
+
+  async duplicate(id: string): Promise<Pipeline> {
+    return fetchApi<Pipeline>(`/pipelines/${id}/duplicate`, {
+      method: 'POST',
+    });
   },
 
   async run(id: string, dsl?: string): Promise<{ runId: string }> {
